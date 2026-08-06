@@ -22,7 +22,13 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Set lower case owner name
+        run: |
+          echo "OWNER_LC=${OWNER,,}" >> ${GITHUB_ENV}
+        env:
+          OWNER: '${{ github.repository_owner }}'
 
+          
       - name: Build and push optimizer
         uses: docker/build-push-action@v6
         with:
@@ -30,5 +36,5 @@ jobs:
           file: Dockerfile
           push: true
           tags: |
-            ghcr.io/${{ github.repository_owner }}/auto-epub-optimizer:latest
-            ghcr.io/${{ github.repository_owner }}/auto-epub-optimizer:${{ github.sha }}
+            ghcr.io/${{ env.OWNER_LC }}/auto-epub-optimizer:latest
+            ghcr.io/${{ env.OWNER_LC }}/auto-epub-optimizer:${{ github.sha }}
