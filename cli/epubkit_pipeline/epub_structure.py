@@ -27,6 +27,16 @@ NS_SVG = 'http://www.w3.org/2000/svg'
 NS_XLINK = 'http://www.w3.org/1999/xlink'
 NS_NCX = 'http://www.daisy.org/z3986/2005/ncx/'
 NS_EPUB = 'http://www.idpf.org/2007/ops'
+MEDIA_TYPE_BY_EXTENSION = {
+    '.jpg': 'image/jpeg',
+    '.jpeg': 'image/jpeg',
+    '.png': 'image/png',
+    '.gif': 'image/gif',
+    '.svg': 'image/svg+xml',
+    '.webp': 'image/webp',
+    '.bmp': 'image/bmp',
+    '.avif': 'image/avif',
+}
 
 
 def _is_element(node):
@@ -76,27 +86,18 @@ def update_opf(opf_path: str, rename_map: dict) -> None:
     if manifest is None:
         return
 
-    opf_dir = str(Path(opf_path).parent)
-
     for item in manifest:
         if not _is_element(item):
             continue
         href = item.get('href', '')
         decoded_href = unquote(href)
 
-        # Resolve relative to OPF location
         for old_path, new_path in rename_map.items():
-            # Compare decoded versions
             if decoded_href == old_path or href == old_path:
                 item.set('href', quote(new_path, safe='/:@'))
-                item.set('media-type', 'image/jpeg')
-                break
-            # Also check relative paths from OPF dir
-            old_rel = os.path.relpath(old_path, os.path.dirname(opf_path.replace(opf_dir + '/', ''))) if '/' in old_path else old_path
-            if decoded_href == old_rel:
-                new_rel = os.path.relpath(new_path, os.path.dirname(opf_path.replace(opf_dir + '/', ''))) if '/' in new_path else new_path
-                item.set('href', quote(new_rel, safe='/:@'))
-                item.set('media-type', 'image/jpeg')
+                media_type = _guess_media_type(new_path)
+                if media_type:
+                    item.set('media-type', media_type)
                 break
 
     tree.write(opf_path, xml_declaration=True, encoding='utf-8', pretty_print=True)
@@ -144,7 +145,7 @@ def add_image_to_opf(opf_path: str, image_href: str, image_id: str) -> None:
     item = etree.SubElement(manifest, f'{{{NS_OPF}}}item')
     item.set('id', image_id)
     item.set('href', image_href)
-    item.set('media-type', 'image/jpeg')
+    item.set('media-type', _guess_media_type(image_href) or 'image/jpeg')
 
     tree.write(opf_path, xml_declaration=True, encoding='utf-8', pretty_print=True)
 
@@ -355,9 +356,13 @@ def fix_toc(epub_dir: str, opf_path: str) -> tuple[bool, str]:
     if manifest is None or spine is None:
         return False, "No manifest or spine found"
 
+    metadata = _opf_book_metadata(root)
+
     # Find NCX file
     ncx_href = None
     ncx_id = None
+    nav_href = None
+    nav_id = None
     for item in manifest:
         if not _is_element(item):
             continue
@@ -365,7 +370,16 @@ def fix_toc(epub_dir: str, opf_path: str) -> tuple[bool, str]:
         if media_type == 'application/x-dtbncx+xml':
             ncx_href = item.get('href', '')
             ncx_id = item.get('id', '')
-            break
+        properties = (item.get('properties') or '').split()
+        if 'nav' in properties:
+            nav_href = item.get('href', '')
+            nav_id = item.get('id', '')
+
+    if is_epub3 and nav_href is None:
+        discovered_nav = _discover_nav_document(manifest, opf_dir)
+        if discovered_nav is not None:
+            nav_id = discovered_nav.get('id', '')
+            nav_href = discovered_nav.get('href', '')
 
     # Build spine reading order
     id_to_href = {}
@@ -386,50 +400,82 @@ def fix_toc(epub_dir: str, opf_path: str) -> tuple[bool, str]:
     if not spine_hrefs:
         return False, "Empty spine"
 
-    # Check existing NCX
-    if ncx_href:
-        ncx_path = os.path.join(opf_dir, unquote(ncx_href))
-        if os.path.exists(ncx_path):
-            try:
-                ncx_tree = etree.parse(ncx_path)
-                nav_map = ncx_tree.getroot().find(f'.//{{{NS_NCX}}}navMap')
-                if nav_map is not None:
-                    nav_points = nav_map.findall(f'{{{NS_NCX}}}navPoint')
-                    if len(nav_points) > 0:
-                        # TOC exists and has entries - verify references
-                        broken = _check_ncx_references(nav_points, opf_dir, ncx_path)
-                        if not broken:
-                            return False, "TOC is valid"
-                        # Fix broken references
-                        _fix_ncx_references(nav_points, opf_dir, ncx_path, spine_hrefs)
-                        ncx_tree.write(ncx_path, xml_declaration=True, encoding='utf-8', pretty_print=True)
-                        return True, f"Fixed {len(broken)} broken TOC references"
-            except Exception:
-                pass
-
-    # No valid TOC found - generate one
     chapters = _extract_chapter_info(opf_dir, spine_hrefs)
+    changed = False
+    messages = []
 
     if ncx_href:
         ncx_path = os.path.join(opf_dir, unquote(ncx_href))
     else:
         ncx_path = os.path.join(opf_dir, 'toc.ncx')
         ncx_href = 'toc.ncx'
+        ncx_id = 'ncx'
 
-    _generate_ncx(ncx_path, chapters, ncx_href)
+    if not _ncx_matches_spine(ncx_path, chapters, metadata['uid']):
+        _generate_ncx(ncx_path, chapters, metadata['uid'], metadata['title'], metadata['author'])
+        changed = True
+        messages.append(f"generated NCX with {len(chapters)} entries")
 
     # Ensure NCX is in manifest
-    if ncx_id is None:
+    if _manifest_item_by_id(manifest, ncx_id) is None:
         item = etree.SubElement(manifest, f'{{{NS_OPF}}}item')
-        item.set('id', 'ncx')
+        item.set('id', ncx_id)
         item.set('href', ncx_href)
         item.set('media-type', 'application/x-dtbncx+xml')
+        changed = True
+    else:
+        item = _manifest_item_by_id(manifest, ncx_id)
+        if item is not None:
+            if item.get('href') != ncx_href:
+                item.set('href', ncx_href)
+                changed = True
+            if item.get('media-type') != 'application/x-dtbncx+xml':
+                item.set('media-type', 'application/x-dtbncx+xml')
+                changed = True
 
-        # Set toc attribute on spine
-        spine.set('toc', 'ncx')
+    if spine.get('toc') != ncx_id:
+        spine.set('toc', ncx_id)
+        changed = True
+
+    if is_epub3:
+        if nav_href:
+            nav_path = os.path.join(opf_dir, unquote(nav_href))
+        else:
+            nav_href = 'nav.xhtml'
+            nav_id = nav_id or 'nav'
+            nav_path = os.path.join(opf_dir, nav_href)
+
+        if not _nav_document_matches_spine(nav_path, chapters):
+            _generate_nav_document(nav_path, chapters, metadata['title'], metadata['author'])
+            changed = True
+            messages.append(f"updated nav document with {len(chapters)} entries")
+
+        nav_item = _find_nav_manifest_item(manifest)
+        if nav_item is None:
+            nav_item = etree.SubElement(manifest, f'{{{NS_OPF}}}item')
+            nav_item.set('id', nav_id or 'nav')
+            nav_item.set('href', nav_href)
+            nav_item.set('media-type', 'application/xhtml+xml')
+            nav_item.set('properties', 'nav')
+            changed = True
+        else:
+            if nav_item.get('href') != nav_href:
+                nav_item.set('href', nav_href)
+                changed = True
+            if nav_item.get('media-type') != 'application/xhtml+xml':
+                nav_item.set('media-type', 'application/xhtml+xml')
+                changed = True
+            properties = set((nav_item.get('properties') or '').split())
+            if 'nav' not in properties:
+                properties.add('nav')
+                nav_item.set('properties', ' '.join(sorted(properties)))
+                changed = True
+
+    if changed:
         tree.write(opf_path, xml_declaration=True, encoding='utf-8', pretty_print=True)
+        return True, "; ".join(messages) if messages else "Updated TOC metadata"
 
-    return True, f"Generated TOC with {len(chapters)} entries"
+    return False, "TOC is valid"
 
 
 def _check_ncx_references(nav_points, opf_dir: str, ncx_path: str) -> list:
@@ -489,6 +535,7 @@ def _extract_chapter_info(opf_dir: str, spine_hrefs: list) -> list[dict]:
 
         chapters.append({
             'href': href,
+            'path': xhtml_path,
             'title': title,
             'id': idref,
         })
@@ -496,21 +543,33 @@ def _extract_chapter_info(opf_dir: str, spine_hrefs: list) -> list[dict]:
     return chapters
 
 
-def _generate_ncx(ncx_path: str, chapters: list[dict], ncx_href: str) -> None:
+def _generate_ncx(ncx_path: str, chapters: list[dict], uid: str, title: str, author: str) -> None:
     """Generate an NCX file from chapter info."""
     ncx = etree.Element(f'{{{NS_NCX}}}ncx', nsmap={None: NS_NCX})
     ncx.set('version', '2005-1')
 
     head = etree.SubElement(ncx, f'{{{NS_NCX}}}head')
-    meta = etree.SubElement(head, f'{{{NS_NCX}}}meta')
-    meta.set('name', 'dtb:depth')
-    meta.set('content', '1')
+    for name, content_value in (
+        ('dtb:uid', uid or 'unknown'),
+        ('dtb:depth', '1'),
+        ('dtb:totalPageCount', '0'),
+        ('dtb:maxPageNumber', '0'),
+    ):
+        meta = etree.SubElement(head, f'{{{NS_NCX}}}meta')
+        meta.set('name', name)
+        meta.set('content', content_value)
 
     doc_title = etree.SubElement(ncx, f'{{{NS_NCX}}}docTitle')
     doc_text = etree.SubElement(doc_title, f'{{{NS_NCX}}}text')
-    doc_text.text = chapters[0]['title'] if chapters else 'Unknown'
+    doc_text.text = title or (chapters[0]['title'] if chapters else 'Unknown')
+
+    if author:
+        doc_author = etree.SubElement(ncx, f'{{{NS_NCX}}}docAuthor')
+        author_text = etree.SubElement(doc_author, f'{{{NS_NCX}}}text')
+        author_text.text = author
 
     nav_map = etree.SubElement(ncx, f'{{{NS_NCX}}}navMap')
+    ncx_dir = Path(ncx_path).parent
 
     for i, chapter in enumerate(chapters):
         nav_point = etree.SubElement(nav_map, f'{{{NS_NCX}}}navPoint')
@@ -522,10 +581,164 @@ def _generate_ncx(ncx_path: str, chapters: list[dict], ncx_href: str) -> None:
         text.text = chapter['title']
 
         content = etree.SubElement(nav_point, f'{{{NS_NCX}}}content')
-        content.set('src', chapter['href'])
+        rel_src = os.path.relpath(Path(chapter['path']), ncx_dir).replace(os.sep, '/')
+        content.set('src', quote(rel_src, safe='/:@'))
 
     tree = etree.ElementTree(ncx)
     tree.write(ncx_path, xml_declaration=True, encoding='utf-8', pretty_print=True)
+
+
+def _guess_media_type(href: str) -> str | None:
+    return MEDIA_TYPE_BY_EXTENSION.get(Path(unquote(href)).suffix.lower())
+
+
+def _manifest_item_by_id(manifest, item_id: str | None):
+    if not item_id:
+        return None
+    for item in manifest:
+        if _is_element(item) and item.get('id') == item_id:
+            return item
+    return None
+
+
+def _find_nav_manifest_item(manifest):
+    for item in manifest:
+        if not _is_element(item):
+            continue
+        properties = set((item.get('properties') or '').split())
+        if 'nav' in properties:
+            return item
+    return None
+
+
+def _opf_book_metadata(root) -> dict[str, str]:
+    identifier = root.find('.//dc:identifier', NAMESPACES)
+    title = root.find('.//dc:title', NAMESPACES)
+    creator = root.find('.//dc:creator', NAMESPACES)
+    return {
+        'uid': (identifier.text or '').strip() if identifier is not None and identifier.text else 'unknown',
+        'title': (title.text or '').strip() if title is not None and title.text else '',
+        'author': (creator.text or '').strip() if creator is not None and creator.text else '',
+    }
+
+
+def _ncx_matches_spine(ncx_path: str, chapters: list[dict], uid: str) -> bool:
+    if not os.path.exists(ncx_path):
+        return False
+    try:
+        tree = etree.parse(ncx_path)
+    except Exception:
+        return False
+
+    head = tree.getroot().find(f'.//{{{NS_NCX}}}head')
+    if head is None:
+        return False
+
+    meta_values = {
+        meta.get('name'): meta.get('content')
+        for meta in head.findall(f'{{{NS_NCX}}}meta')
+        if meta.get('name')
+    }
+    if meta_values.get('dtb:uid') != (uid or 'unknown'):
+        return False
+    if meta_values.get('dtb:totalPageCount') != '0' or meta_values.get('dtb:maxPageNumber') != '0':
+        return False
+
+    nav_points = tree.getroot().findall(f'.//{{{NS_NCX}}}navPoint')
+    if len(nav_points) != len(chapters):
+        return False
+
+    ncx_dir = Path(ncx_path).parent.resolve()
+    for nav_point, chapter in zip(nav_points, chapters):
+        content = nav_point.find(f'{{{NS_NCX}}}content')
+        if content is None or not content.get('src'):
+            return False
+        src_path = (ncx_dir / unquote(content.get('src', '').split('#', 1)[0])).resolve()
+        if src_path != Path(chapter['path']).resolve():
+            return False
+    return True
+
+
+def _nav_document_matches_spine(nav_path: str, chapters: list[dict]) -> bool:
+    if not os.path.exists(nav_path):
+        return False
+    try:
+        tree = etree.parse(nav_path)
+    except Exception:
+        return False
+
+    nav = tree.getroot().find('.//xhtml:nav[@epub:type="toc"]', NAMESPACES)
+    if nav is None:
+        for candidate in tree.getroot().findall('.//xhtml:nav', NAMESPACES):
+            epub_type = candidate.get(f'{{{NS_EPUB}}}type') or candidate.get('epub:type')
+            if epub_type and 'toc' in epub_type.split():
+                nav = candidate
+                break
+    if nav is None:
+        return False
+
+    hrefs = [
+        (Path(nav_path).parent / unquote(link.get('href', '').split('#', 1)[0])).resolve()
+        for link in nav.findall('.//xhtml:a', NAMESPACES)
+        if link.get('href')
+    ]
+    expected = [Path(chapter['path']).resolve() for chapter in chapters]
+    return hrefs == expected
+
+
+def _generate_nav_document(nav_path: str, chapters: list[dict], title: str, author: str) -> None:
+    html = etree.Element(
+        f'{{{NS_XHTML}}}html',
+        nsmap={None: NS_XHTML, 'epub': NS_EPUB},
+    )
+    head = etree.SubElement(html, f'{{{NS_XHTML}}}head')
+    title_el = etree.SubElement(head, f'{{{NS_XHTML}}}title')
+    title_el.text = title or 'Table of Contents'
+
+    body = etree.SubElement(html, f'{{{NS_XHTML}}}body')
+    nav = etree.SubElement(body, f'{{{NS_XHTML}}}nav')
+    nav.set(f'{{{NS_EPUB}}}type', 'toc')
+    nav.set('role', 'doc-toc')
+    heading = etree.SubElement(nav, f'{{{NS_XHTML}}}h1')
+    heading.text = 'Table of Contents'
+    ol = etree.SubElement(nav, f'{{{NS_XHTML}}}ol')
+    nav_dir = Path(nav_path).parent
+    for chapter in chapters:
+        li = etree.SubElement(ol, f'{{{NS_XHTML}}}li')
+        link = etree.SubElement(li, f'{{{NS_XHTML}}}a')
+        rel_href = os.path.relpath(Path(chapter['path']), nav_dir).replace(os.sep, '/')
+        link.set('href', quote(rel_href, safe='/:@'))
+        link.text = chapter['title']
+
+    etree.ElementTree(html).write(nav_path, xml_declaration=True, encoding='utf-8', pretty_print=True, doctype='<!DOCTYPE html>')
+
+
+def _discover_nav_document(manifest, opf_dir: str):
+    for item in manifest:
+        if not _is_element(item):
+            continue
+        media_type = (item.get('media-type') or '').lower()
+        href = item.get('href', '')
+        if media_type != 'application/xhtml+xml' or not href:
+            continue
+        nav_path = os.path.join(opf_dir, unquote(href))
+        if not os.path.exists(nav_path):
+            continue
+        try:
+            tree = etree.parse(nav_path)
+        except Exception:
+            continue
+        if _has_toc_nav(tree.getroot()):
+            return item
+    return None
+
+
+def _has_toc_nav(root) -> bool:
+    for candidate in root.findall('.//xhtml:nav', NAMESPACES):
+        epub_type = candidate.get(f'{{{NS_EPUB}}}type') or candidate.get('epub:type')
+        if epub_type and 'toc' in epub_type.split():
+            return True
+    return False
 
 
 def find_content_files(epub_dir: str, opf_path: str) -> dict:

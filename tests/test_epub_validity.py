@@ -1,0 +1,372 @@
+import shutil
+import subprocess
+import sys
+import tempfile
+import unittest
+import zipfile
+from pathlib import Path
+
+from lxml import etree
+
+
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+PIPELINE_DIR = PROJECT_ROOT / 'cli' / 'epubkit_pipeline'
+sys.path.insert(0, str(PIPELINE_DIR))
+
+from epub_packager import is_valid_epub  # noqa: E402
+from epub_processor import ProcessingOptions, process_epub  # noqa: E402
+from epub_structure import add_image_to_opf, fix_toc, update_opf  # noqa: E402
+from html_cleaner import repair_html  # noqa: E402
+
+
+class EpubValidityTests(unittest.TestCase):
+    maxDiff = None
+
+    def test_epub3_nav_semantics_survive_processing(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            input_path = root / 'input.epub'
+            output_path = root / 'output.epub'
+            self._write_epub3_fixture(input_path)
+
+            report = process_epub(
+                str(input_path),
+                str(output_path),
+                ProcessingOptions(
+                    remove_fonts=False,
+                    remove_unused_css=False,
+                    generate_missing_cover=False,
+                    clean_metadata=False,
+                    text_cleanup=False,
+                ),
+            )
+
+            self.assertTrue(report.success, report.error)
+            with zipfile.ZipFile(output_path) as zf:
+                nav_tree = etree.fromstring(zf.read('OEBPS/nav.xhtml'))
+                ns = {
+                    'xhtml': 'http://www.w3.org/1999/xhtml',
+                    'epub': 'http://www.idpf.org/2007/ops',
+                }
+                nav = nav_tree.find('.//xhtml:nav', ns)
+                self.assertIsNotNone(nav)
+                self.assertEqual(nav.get('{http://www.idpf.org/2007/ops}type'), 'toc')
+                self.assertEqual(nav.get('role'), 'doc-toc')
+                self.assertEqual(nav_tree.get('lang'), 'en')
+                self.assertEqual(nav_tree.get('{http://www.w3.org/XML/1998/namespace}lang'), 'en')
+                body = nav_tree.find('.//xhtml:body', ns)
+                self.assertEqual(body.get('dir'), 'ltr')
+
+            valid, error = is_valid_epub(str(output_path))
+            self.assertTrue(valid, error)
+
+    def test_repair_html_outputs_xml_well_formed_xhtml(self):
+        repaired = repair_html(
+            b'<!DOCTYPE html><html><head><meta charset="utf-8"></head>'
+            b'<body><p>Line<br><img src="cover.png"></p><hr></body></html>'
+        )
+
+        self.assertTrue(repaired.startswith(b"<?xml"))
+        self.assertIn(b'<!DOCTYPE html>', repaired)
+        self.assertIn(b'<br/>', repaired)
+        self.assertIn(b'<img src="cover.png"/>', repaired)
+        self.assertIn(b'<meta charset="utf-8"/>', repaired)
+        root = etree.fromstring(repaired)
+        self.assertEqual(root.tag, '{http://www.w3.org/1999/xhtml}html')
+
+    def test_encryption_manifest_is_pruned_after_font_removal(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            input_path = root / 'input.epub'
+            output_path = root / 'output.epub'
+            self._write_font_obfuscation_fixture(input_path)
+
+            report = process_epub(
+                str(input_path),
+                str(output_path),
+                ProcessingOptions(
+                    remove_unused_css=False,
+                    generate_missing_cover=False,
+                    clean_metadata=False,
+                    text_cleanup=False,
+                ),
+            )
+
+            self.assertTrue(report.success, report.error)
+            with zipfile.ZipFile(output_path) as zf:
+                self.assertNotIn('META-INF/encryption.xml', zf.namelist())
+            valid, error = is_valid_epub(str(output_path))
+            self.assertTrue(valid, error)
+
+    def test_fix_toc_generates_ncx_uid_and_relative_src(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self._write_opf_tree(
+                root,
+                opf_rel='OEBPS/content.opf',
+                opf_xml='''<?xml version="1.0" encoding="utf-8"?>
+<package xmlns="http://www.idpf.org/2007/opf" unique-identifier="BookId" version="2.0">
+  <metadata xmlns:dc="http://purl.org/dc/elements/1.1/">
+    <dc:identifier id="BookId">book-uid</dc:identifier>
+    <dc:title>Sample Book</dc:title>
+    <dc:creator>Sample Author</dc:creator>
+  </metadata>
+  <manifest>
+    <item id="chapter" href="chapter.xhtml" media-type="application/xhtml+xml"/>
+    <item id="ncx" href="../toc.ncx" media-type="application/x-dtbncx+xml"/>
+  </manifest>
+  <spine>
+    <itemref idref="chapter"/>
+  </spine>
+</package>''',
+                extra_files={
+                    'OEBPS/chapter.xhtml': self._chapter_xhtml('Chapter 1'),
+                },
+            )
+
+            changed, _ = fix_toc(str(root), str(root / 'OEBPS' / 'content.opf'))
+            self.assertTrue(changed)
+
+            ncx = etree.parse(str(root / 'toc.ncx'))
+            ns = {'ncx': 'http://www.daisy.org/z3986/2005/ncx/'}
+            meta = {
+                item.get('name'): item.get('content')
+                for item in ncx.findall('.//ncx:meta', ns)
+            }
+            self.assertEqual(meta.get('dtb:uid'), 'book-uid')
+            self.assertEqual(meta.get('dtb:totalPageCount'), '0')
+            self.assertEqual(meta.get('dtb:maxPageNumber'), '0')
+            self.assertEqual(
+                ncx.find('.//ncx:content', ns).get('src'),
+                'OEBPS/chapter.xhtml',
+            )
+
+    def test_fix_toc_sets_spine_toc_for_existing_ncx(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self._write_opf_tree(
+                root,
+                opf_rel='OEBPS/content.opf',
+                opf_xml='''<?xml version="1.0" encoding="utf-8"?>
+<package xmlns="http://www.idpf.org/2007/opf" unique-identifier="BookId" version="2.0">
+  <metadata xmlns:dc="http://purl.org/dc/elements/1.1/">
+    <dc:identifier id="BookId">book-uid</dc:identifier>
+    <dc:title>Sample Book</dc:title>
+  </metadata>
+  <manifest>
+    <item id="chapter" href="chapter.xhtml" media-type="application/xhtml+xml"/>
+    <item id="existing-ncx" href="toc.ncx" media-type="application/x-dtbncx+xml"/>
+  </manifest>
+  <spine>
+    <itemref idref="chapter"/>
+  </spine>
+</package>''',
+                extra_files={
+                    'OEBPS/chapter.xhtml': self._chapter_xhtml('Chapter 1'),
+                    'OEBPS/toc.ncx': '''<?xml version="1.0" encoding="utf-8"?>
+<ncx xmlns="http://www.daisy.org/z3986/2005/ncx/" version="2005-1">
+  <head>
+    <meta name="dtb:uid" content="book-uid"/>
+    <meta name="dtb:depth" content="1"/>
+    <meta name="dtb:totalPageCount" content="0"/>
+    <meta name="dtb:maxPageNumber" content="0"/>
+  </head>
+  <docTitle><text>Sample Book</text></docTitle>
+  <navMap>
+    <navPoint id="navPoint-1" playOrder="1">
+      <navLabel><text>Chapter 1</text></navLabel>
+      <content src="chapter.xhtml"/>
+    </navPoint>
+  </navMap>
+</ncx>''',
+                },
+            )
+
+            changed, _ = fix_toc(str(root), str(root / 'OEBPS' / 'content.opf'))
+            self.assertTrue(changed)
+            opf = etree.parse(str(root / 'OEBPS' / 'content.opf'))
+            spine = opf.find('.//{http://www.idpf.org/2007/opf}spine')
+            self.assertEqual(spine.get('toc'), 'existing-ncx')
+
+    def test_png_manifest_media_type_is_preserved(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            opf_path = root / 'content.opf'
+            opf_path.write_text(
+                '''<?xml version="1.0" encoding="utf-8"?>
+<package xmlns="http://www.idpf.org/2007/opf" version="2.0">
+  <manifest>
+    <item id="img-old" href="images/old.png" media-type="image/png"/>
+  </manifest>
+  <spine/>
+</package>''',
+                encoding='utf-8',
+            )
+
+            add_image_to_opf(str(opf_path), 'images/cover.png', 'cover-image')
+            update_opf(str(opf_path), {'images/old.png': 'images/new.png'})
+
+            opf = etree.parse(str(opf_path))
+            items = {
+                item.get('id'): item
+                for item in opf.findall('.//{http://www.idpf.org/2007/opf}item')
+            }
+            self.assertEqual(items['img-old'].get('href'), 'images/new.png')
+            self.assertEqual(items['img-old'].get('media-type'), 'image/png')
+            self.assertEqual(items['cover-image'].get('media-type'), 'image/png')
+
+    @unittest.skipUnless(shutil.which('epubcheck'), 'epubcheck is not installed')
+    def test_optional_epubcheck_accepts_processed_output(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            input_path = root / 'input.epub'
+            output_path = root / 'output.epub'
+            self._write_epub3_fixture(input_path)
+
+            report = process_epub(
+                str(input_path),
+                str(output_path),
+                ProcessingOptions(
+                    remove_fonts=False,
+                    remove_unused_css=False,
+                    generate_missing_cover=False,
+                    clean_metadata=False,
+                    text_cleanup=False,
+                ),
+            )
+            self.assertTrue(report.success, report.error)
+
+            result = subprocess.run(
+                ['epubcheck', str(output_path)],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+    def _write_epub3_fixture(self, path: Path) -> None:
+        self._write_epub(
+            path,
+            {
+                'mimetype': ('application/epub+zip', zipfile.ZIP_STORED),
+                'META-INF/container.xml': (self._container_xml('OEBPS/content.opf'), zipfile.ZIP_DEFLATED),
+                'OEBPS/content.opf': ('''<?xml version="1.0" encoding="utf-8"?>
+<package xmlns="http://www.idpf.org/2007/opf" unique-identifier="BookId" version="3.0">
+  <metadata xmlns:dc="http://purl.org/dc/elements/1.1/">
+    <dc:identifier id="BookId">epub3-fixture</dc:identifier>
+    <dc:title>Fixture</dc:title>
+    <dc:creator>Author</dc:creator>
+    <dc:language>en</dc:language>
+  </metadata>
+  <manifest>
+    <item id="chapter" href="chapter.xhtml" media-type="application/xhtml+xml"/>
+    <item id="nav" href="nav.xhtml" media-type="application/xhtml+xml" properties="nav"/>
+  </manifest>
+  <spine>
+    <itemref idref="chapter"/>
+  </spine>
+</package>''', zipfile.ZIP_DEFLATED),
+                'OEBPS/chapter.xhtml': (self._chapter_xhtml('Chapter 1'), zipfile.ZIP_DEFLATED),
+                'OEBPS/nav.xhtml': ('''<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops" lang="en">
+  <head>
+    <title>TOC</title>
+    <meta charset="utf-8"/>
+  </head>
+  <body dir="ltr">
+    <nav epub:type="toc" role="doc-toc">
+      <ol><li><a href="chapter.xhtml">Chapter 1</a></li></ol>
+    </nav>
+  </body>
+</html>''', zipfile.ZIP_DEFLATED),
+            },
+        )
+
+    def _write_font_obfuscation_fixture(self, path: Path) -> None:
+        self._write_epub(
+            path,
+            {
+                'mimetype': ('application/epub+zip', zipfile.ZIP_STORED),
+                'META-INF/container.xml': (self._container_xml('OEBPS/content.opf'), zipfile.ZIP_DEFLATED),
+                'META-INF/encryption.xml': ('''<?xml version="1.0" encoding="utf-8"?>
+<encryption xmlns="urn:oasis:names:tc:opendocument:xmlns:container"
+            xmlns:enc="http://www.w3.org/2001/04/xmlenc#">
+  <enc:EncryptedData>
+    <enc:EncryptionMethod Algorithm="http://www.idpf.org/2008/embedding"/>
+    <enc:CipherData><enc:CipherReference URI="../OEBPS/fonts/font.otf"/></enc:CipherData>
+  </enc:EncryptedData>
+  <enc:EncryptedData>
+    <enc:EncryptionMethod Algorithm="http://www.idpf.org/2008/embedding"/>
+    <enc:CipherData><enc:CipherReference URI="../OEBPS/fonts/missing.otf"/></enc:CipherData>
+  </enc:EncryptedData>
+</encryption>''', zipfile.ZIP_DEFLATED),
+                'OEBPS/content.opf': ('''<?xml version="1.0" encoding="utf-8"?>
+<package xmlns="http://www.idpf.org/2007/opf" unique-identifier="BookId" version="2.0">
+  <metadata xmlns:dc="http://purl.org/dc/elements/1.1/">
+    <dc:identifier id="BookId">font-fixture</dc:identifier>
+    <dc:title>Fixture</dc:title>
+  </metadata>
+  <manifest>
+    <item id="chapter" href="chapter.xhtml" media-type="application/xhtml+xml"/>
+    <item id="font" href="fonts/font.otf" media-type="font/otf"/>
+    <item id="ncx" href="toc.ncx" media-type="application/x-dtbncx+xml"/>
+  </manifest>
+  <spine toc="ncx">
+    <itemref idref="chapter"/>
+  </spine>
+</package>''', zipfile.ZIP_DEFLATED),
+                'OEBPS/chapter.xhtml': (self._chapter_xhtml('Chapter 1'), zipfile.ZIP_DEFLATED),
+                'OEBPS/toc.ncx': ('''<?xml version="1.0" encoding="utf-8"?>
+<ncx xmlns="http://www.daisy.org/z3986/2005/ncx/" version="2005-1">
+  <head>
+    <meta name="dtb:uid" content="font-fixture"/>
+    <meta name="dtb:depth" content="1"/>
+    <meta name="dtb:totalPageCount" content="0"/>
+    <meta name="dtb:maxPageNumber" content="0"/>
+  </head>
+  <docTitle><text>Fixture</text></docTitle>
+  <navMap>
+    <navPoint id="navPoint-1" playOrder="1">
+      <navLabel><text>Chapter 1</text></navLabel>
+      <content src="chapter.xhtml"/>
+    </navPoint>
+  </navMap>
+</ncx>''', zipfile.ZIP_DEFLATED),
+                'OEBPS/fonts/font.otf': (b'fake-font-data', zipfile.ZIP_DEFLATED),
+            },
+        )
+
+    def _write_opf_tree(self, root: Path, opf_rel: str, opf_xml: str, extra_files: dict[str, str]) -> None:
+        (root / 'META-INF').mkdir(parents=True, exist_ok=True)
+        (root / 'META-INF' / 'container.xml').write_text(self._container_xml(opf_rel), encoding='utf-8')
+        opf_path = root / opf_rel
+        opf_path.parent.mkdir(parents=True, exist_ok=True)
+        opf_path.write_text(opf_xml, encoding='utf-8')
+        for rel_path, content in extra_files.items():
+            file_path = root / rel_path
+            file_path.parent.mkdir(parents=True, exist_ok=True)
+            file_path.write_text(content, encoding='utf-8')
+
+    def _write_epub(self, path: Path, entries: dict[str, tuple[bytes | str, int]]) -> None:
+        with zipfile.ZipFile(path, 'w') as zf:
+            for name, (content, compression) in entries.items():
+                zf.writestr(name, content, compress_type=compression)
+
+    def _container_xml(self, opf_rel: str) -> str:
+        return f'''<?xml version="1.0" encoding="utf-8"?>
+<container xmlns="urn:oasis:names:tc:opendocument:xmlns:container" version="1.0">
+  <rootfiles><rootfile full-path="{opf_rel}" media-type="application/oebps-package+xml"/></rootfiles>
+</container>'''
+
+    def _chapter_xhtml(self, title: str) -> str:
+        return f'''<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml">
+  <head><title>{title}</title></head>
+  <body><h1>{title}</h1><p>Body text.</p></body>
+</html>'''
+
+
+if __name__ == '__main__':
+    unittest.main()

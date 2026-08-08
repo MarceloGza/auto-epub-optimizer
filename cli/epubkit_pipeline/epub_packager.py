@@ -6,6 +6,9 @@ Handles: EPUB extraction, repackaging with correct mimetype-first ZIP structure,
 import os
 import zipfile
 from pathlib import Path
+from urllib.parse import unquote
+
+from lxml import etree
 
 # Files/dirs to exclude from packaged EPUB
 OS_ARTIFACTS = {
@@ -14,6 +17,11 @@ OS_ARTIFACTS = {
 OS_ARTIFACT_DIRS = {
     '__MACOSX', '.git', '.svn',
 }
+NS_CONTAINER = 'urn:oasis:names:tc:opendocument:xmlns:container'
+NS_OPF = 'http://www.idpf.org/2007/opf'
+NS_XHTML = 'http://www.w3.org/1999/xhtml'
+NS_EPUB = 'http://www.idpf.org/2007/ops'
+NS_XMLENC = 'http://www.w3.org/2001/04/xmlenc#'
 
 
 def extract_epub(epub_path: str, dest_dir: str) -> None:
@@ -136,6 +144,72 @@ def is_valid_epub(epub_path: str) -> tuple[bool, str]:
             if 'META-INF/container.xml' not in names:
                 return False, "Missing META-INF/container.xml"
 
+            archive_entries = set(names)
+            container_tree = etree.fromstring(zf.read('META-INF/container.xml'))
+            rootfile = container_tree.find(f'.//{{{NS_CONTAINER}}}rootfile')
+            if rootfile is None:
+                for el in container_tree.iter():
+                    if isinstance(el.tag, str) and (el.tag.endswith('}rootfile') or el.tag == 'rootfile'):
+                        rootfile = el
+                        break
+            if rootfile is None:
+                return False, "container.xml does not reference an OPF rootfile"
+
+            opf_path = rootfile.get('full-path')
+            if not opf_path or opf_path not in archive_entries:
+                return False, f"Referenced OPF is missing: {opf_path or '<empty>'}"
+
+            opf_tree = etree.fromstring(zf.read(opf_path))
+            opf_dir = Path(opf_path).parent
+            manifest = opf_tree.find(f'.//{{{NS_OPF}}}manifest')
+            if manifest is None:
+                for el in opf_tree.iter():
+                    if isinstance(el.tag, str) and (el.tag.endswith('}manifest') or el.tag == 'manifest'):
+                        manifest = el
+                        break
+            if manifest is None:
+                return False, "OPF manifest is missing"
+
+            package_version = opf_tree.get('version', '2.0')
+            nav_item_href = None
+            for item in manifest:
+                if not isinstance(item.tag, str):
+                    continue
+                href = item.get('href')
+                if not href:
+                    continue
+                full_path = _archive_relpath(opf_dir, href)
+                if full_path not in archive_entries:
+                    return False, f"Manifest item missing from archive: {full_path}"
+                if package_version.startswith('3'):
+                    properties = set((item.get('properties') or '').split())
+                    if 'nav' in properties:
+                        nav_item_href = href
+
+            if package_version.startswith('3'):
+                if not nav_item_href:
+                    return False, "EPUB 3 package is missing a manifest nav document"
+                nav_path = _archive_relpath(opf_dir, nav_item_href)
+                try:
+                    nav_tree = etree.fromstring(zf.read(nav_path))
+                except Exception as exc:
+                    return False, f"Nav document is not parseable XML: {exc}"
+                if not _has_toc_nav(nav_tree):
+                    return False, "EPUB 3 nav document is missing nav epub:type=\"toc\""
+
+            encryption_path = 'META-INF/encryption.xml'
+            if encryption_path in archive_entries:
+                try:
+                    enc_tree = etree.fromstring(zf.read(encryption_path))
+                except Exception as exc:
+                    return False, f"encryption.xml is invalid XML: {exc}"
+                for cipher in enc_tree.findall(f'.//{{{NS_XMLENC}}}CipherReference'):
+                    uri = cipher.get('URI', '')
+                    if not uri:
+                        continue
+                    if not _encryption_target_exists(archive_entries, uri):
+                        return False, f"encryption.xml references missing file: {uri}"
+
             return True, ""
 
     except zipfile.BadZipFile:
@@ -196,7 +270,6 @@ def find_opf_path(epub_dir: str) -> str:
                     return os.path.relpath(os.path.join(root, f), epub_dir)
         raise FileNotFoundError("No OPF file found in EPUB")
 
-    from lxml import etree
     tree = etree.parse(container_path)
     root = tree.getroot()
 
@@ -218,3 +291,35 @@ def find_opf_path(epub_dir: str) -> str:
         raise FileNotFoundError("No rootfile found in container.xml")
 
     return rootfile.get('full-path')
+
+
+def _archive_relpath(base_dir: Path, href: str) -> str:
+    clean_href = unquote((href or '').split('#', 1)[0])
+    return os.path.normpath(os.path.join(str(base_dir), clean_href)).replace(os.sep, '/')
+
+
+def _has_toc_nav(nav_tree) -> bool:
+    nav_elements = nav_tree.findall(f'.//{{{NS_XHTML}}}nav')
+    for nav in nav_elements:
+        epub_type = nav.get(f'{{{NS_EPUB}}}type') or nav.get('epub:type')
+        if epub_type and 'toc' in epub_type.split():
+            return True
+    return False
+
+
+def _encryption_target_exists(archive_entries: set[str], href: str) -> bool:
+    return any(
+        candidate in archive_entries
+        for candidate in _candidate_archive_paths(Path('META-INF'), href)
+    )
+
+
+def _candidate_archive_paths(base_dir: Path, href: str) -> list[str]:
+    clean_href = unquote((href or '').split('#', 1)[0])
+    if not clean_href:
+        return []
+    candidates = [
+        os.path.normpath(clean_href).replace(os.sep, '/'),
+        os.path.normpath(os.path.join(str(base_dir), clean_href)).replace(os.sep, '/'),
+    ]
+    return list(dict.fromkeys(candidates))

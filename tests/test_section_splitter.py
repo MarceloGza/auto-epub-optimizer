@@ -65,7 +65,7 @@ class SectionSplitterTests(unittest.TestCase):
 
                 ncx = zf.read('OEBPS/toc.ncx').decode('utf-8')
                 self.assertIn('chapter.xhtml', ncx)
-                self.assertNotIn('chapter__ci_section_2.xhtml', ncx)
+                self.assertIn('chapter__ci_section_2.xhtml', ncx)
 
     def _write_fixture(self, path: Path):
         paragraphs = [

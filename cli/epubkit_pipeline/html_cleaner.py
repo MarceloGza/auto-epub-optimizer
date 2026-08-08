@@ -3,7 +3,9 @@ HTML cleaner for Xteink X4 EPUB Optimizer.
 Handles: HTML repair, unused CSS removal, embedded font removal, whitespace/page-break normalization.
 """
 
+import copy
 import re
+from io import BytesIO
 from pathlib import Path
 from typing import Optional
 
@@ -15,6 +17,9 @@ import logging
 cssutils.log.setLevel(logging.CRITICAL)
 
 XHTML_NS = 'http://www.w3.org/1999/xhtml'
+EPUB_NS = 'http://www.idpf.org/2007/ops'
+XML_NS = 'http://www.w3.org/XML/1998/namespace'
+DEFAULT_DOCTYPE = '<!DOCTYPE html>'
 FONT_EXTENSIONS = {'.ttf', '.otf', '.woff', '.woff2', '.eot'}
 FONT_MEDIA_TYPES = {
     'application/font-woff', 'application/font-woff2',
@@ -30,18 +35,8 @@ def repair_html(html_bytes: bytes) -> bytes:
     Repair malformed HTML/XHTML using lxml's recovery parser.
     Returns well-formed XHTML bytes.
     """
-    # Try parsing as proper XML first
     try:
-        tree = etree.fromstring(html_bytes)
-        # Already valid - just re-serialize cleanly
-        return etree.tostring(tree, encoding='unicode', pretty_print=True).encode('utf-8')
-    except etree.XMLSyntaxError:
-        pass
-
-    # Fall back to HTML parser with recovery
-    parser = etree.HTMLParser(recover=True, encoding='utf-8')
-    try:
-        tree = etree.fromstring(html_bytes, parser)
+        tree, doctype = _parse_xhtml_document(html_bytes, allow_html_recovery=True)
     except Exception:
         # Completely broken - return as-is
         return html_bytes
@@ -49,9 +44,7 @@ def repair_html(html_bytes: bytes) -> bytes:
     if tree is None:
         return html_bytes
 
-    # Re-serialize as XHTML
-    result = etree.tostring(tree, encoding='unicode', pretty_print=True, method='html')
-    return result.encode('utf-8')
+    return _serialize_xhtml_document(tree, doctype)
 
 
 def remove_unused_css(css_text: str, used_classes: set, used_ids: set, used_elements: set) -> tuple[str, int]:
@@ -214,19 +207,18 @@ def normalize_whitespace(xhtml_bytes: bytes) -> tuple[bytes, int]:
     Returns (cleaned bytes, count of removed elements).
     """
     try:
-        tree = etree.fromstring(xhtml_bytes)
-    except etree.XMLSyntaxError:
-        parser = etree.HTMLParser(recover=True)
-        tree = etree.fromstring(xhtml_bytes, parser)
-        if tree is None:
-            return xhtml_bytes, 0
+        tree, doctype = _parse_xhtml_document(xhtml_bytes, allow_html_recovery=True)
+    except Exception:
+        return xhtml_bytes, 0
+
+    if tree is None:
+        return xhtml_bytes, 0
 
     removed = 0
-    ns = XHTML_NS
 
     # Find consecutive empty paragraphs (more than 2 in a row)
     empty_streak = []
-    for el in tree.iter():
+    for el in tree.getroot().iter():
         tag = el.tag.split('}')[-1] if '}' in str(el.tag) else str(el.tag)
 
         if tag in ('p', 'div'):
@@ -267,8 +259,7 @@ def normalize_whitespace(xhtml_bytes: bytes) -> tuple[bytes, int]:
                 parent.remove(empty_el)
                 removed += 1
 
-    result = etree.tostring(tree, encoding='unicode', pretty_print=True)
-    return result.encode('utf-8'), removed
+    return _serialize_xhtml_document(tree, doctype), removed
 
 
 # Attributes to keep during stripping (essential for EPUB rendering)
@@ -280,8 +271,7 @@ KEEP_ATTRS = frozenset({
     'scope', 'headers', 'border', 'cellpadding', 'cellspacing',
 })
 
-# Attribute prefixes to always strip
-STRIP_ATTR_PREFIXES = ('data-', 'aria-', 'epub:')
+STRIP_ATTR_PREFIXES = ('data-', 'aria-')
 
 
 def strip_unnecessary_attributes(xhtml_bytes: bytes) -> tuple[bytes, int]:
@@ -295,26 +285,34 @@ def strip_unnecessary_attributes(xhtml_bytes: bytes) -> tuple[bytes, int]:
     Returns (cleaned bytes, count of removed attributes).
     """
     try:
-        tree = etree.fromstring(xhtml_bytes)
-    except etree.XMLSyntaxError:
-        parser = etree.HTMLParser(recover=True)
-        tree = etree.fromstring(xhtml_bytes, parser)
-        if tree is None:
-            return xhtml_bytes, 0
+        tree, doctype = _parse_xhtml_document(xhtml_bytes, allow_html_recovery=True)
+    except Exception:
+        return xhtml_bytes, 0
+
+    if tree is None:
+        return xhtml_bytes, 0
 
     removed = 0
 
-    for el in tree.iter():
+    for el in tree.getroot().iter():
         if not isinstance(el.tag, str):
             continue
 
         attrs_to_remove = []
-        for attr in el.attrib:
+        tag_local = _local_name(el.tag).lower()
+        for attr in list(el.attrib):
             # Get local attribute name (strip namespace)
-            attr_local = attr.split('}')[-1] if '}' in attr else attr
+            attr_local = _local_name(attr)
+            attr_lower = attr.lower()
 
             # Skip namespace declarations
             if attr.startswith('{') and attr_local in ('xmlns',):
+                continue
+
+            if attr.startswith(f'{{{EPUB_NS}}}') or attr_lower.startswith('epub:'):
+                continue
+
+            if attr == f'{{{XML_NS}}}lang' or attr_lower == 'xml:lang':
                 continue
 
             # Check if it's a kept attribute
@@ -325,6 +323,9 @@ def strip_unnecessary_attributes(xhtml_bytes: bytes) -> tuple[bytes, int]:
             if attr_local in ('href', 'src', 'type', 'lang'):
                 continue
 
+            if attr_local.lower() == 'role' and tag_local == 'nav':
+                continue
+
             # Strip known-useless prefixes
             if any(attr_local.lower().startswith(p) for p in STRIP_ATTR_PREFIXES):
                 attrs_to_remove.append(attr)
@@ -333,7 +334,7 @@ def strip_unnecessary_attributes(xhtml_bytes: bytes) -> tuple[bytes, int]:
             # Strip other non-essential attributes
             if attr_local.lower() in ('role', 'tabindex', 'accesskey', 'draggable',
                                        'contenteditable', 'spellcheck', 'autocorrect',
-                                       'autocapitalize', 'autofocus', 'dir',
+                                       'autocapitalize', 'autofocus',
                                        'translate', 'inputmode', 'enterkeyhint',
                                        'hidden', 'inert', 'popover'):
                 attrs_to_remove.append(attr)
@@ -342,11 +343,8 @@ def strip_unnecessary_attributes(xhtml_bytes: bytes) -> tuple[bytes, int]:
             del el.attrib[attr]
             removed += 1
 
-    if removed > 0:
-        result = etree.tostring(tree, encoding='unicode', pretty_print=True)
-        return result.encode('utf-8'), removed
-
-    return xhtml_bytes, removed
+    _sync_lang_attributes(tree.getroot())
+    return _serialize_xhtml_document(tree, doctype), removed
 
 
 def add_chapter_page_breaks(xhtml_bytes: bytes) -> bytes:
@@ -355,14 +353,15 @@ def add_chapter_page_breaks(xhtml_bytes: bytes) -> bytes:
     This ensures proper chapter separation on e-readers.
     """
     try:
-        tree = etree.fromstring(xhtml_bytes)
-    except etree.XMLSyntaxError:
+        tree, doctype = _parse_xhtml_document(xhtml_bytes)
+    except Exception:
         return xhtml_bytes
 
     # Find <head> to inject CSS if needed
-    head = tree.find('.//{http://www.w3.org/1999/xhtml}head')
+    root = tree.getroot()
+    head = root.find('.//{http://www.w3.org/1999/xhtml}head')
     if head is None:
-        head = tree.find('.//head')
+        head = root.find('.//head')
     if head is None:
         return xhtml_bytes
 
@@ -379,8 +378,123 @@ def add_chapter_page_breaks(xhtml_bytes: bytes) -> bytes:
 
     if not has_page_break:
         # Add page-break style
-        ns = tree.tag.split('}')[0] + '}' if '}' in tree.tag else ''
+        ns = root.tag.split('}')[0] + '}' if '}' in root.tag else ''
         style_el = etree.SubElement(head, f'{ns}style', type='text/css')
         style_el.text = '\nh1, h2 { page-break-before: always; }\n'
 
-    return etree.tostring(tree, encoding='unicode', pretty_print=True).encode('utf-8')
+    return _serialize_xhtml_document(tree, doctype)
+
+
+def _parse_xhtml_document(xhtml_bytes: bytes, allow_html_recovery: bool = False) -> tuple[etree._ElementTree | None, str]:
+    """Parse XHTML bytes, optionally recovering malformed HTML into XHTML."""
+    try:
+        parser = etree.XMLParser(recover=False, remove_blank_text=False)
+        tree = etree.parse(BytesIO(xhtml_bytes), parser)
+        return _ensure_xhtml_tree(tree), tree.docinfo.doctype or DEFAULT_DOCTYPE
+    except etree.XMLSyntaxError:
+        if not allow_html_recovery:
+            raise
+
+    parser = etree.HTMLParser(recover=True, encoding='utf-8', remove_blank_text=False)
+    tree = etree.parse(BytesIO(xhtml_bytes), parser)
+    root = tree.getroot()
+    if root is None:
+        return None, DEFAULT_DOCTYPE
+    return _ensure_xhtml_tree(etree.ElementTree(_coerce_tree_to_xhtml(root))), DEFAULT_DOCTYPE
+
+
+def _serialize_xhtml_document(tree: etree._ElementTree, doctype: str | None) -> bytes:
+    """Serialize XHTML with XML declaration, doctype, and XHTML namespace intact."""
+    tree = _ensure_xhtml_tree(tree)
+    return etree.tostring(
+        tree,
+        encoding='utf-8',
+        pretty_print=True,
+        method='xml',
+        xml_declaration=True,
+        doctype=doctype or DEFAULT_DOCTYPE,
+    )
+
+
+def _ensure_xhtml_tree(tree: etree._ElementTree) -> etree._ElementTree:
+    """Ensure the document root is XHTML and lang/xml:lang stay synchronized."""
+    root = tree.getroot()
+    if root is None:
+        return tree
+
+    if _namespace_uri(root.tag) != XHTML_NS or _local_name(root.tag).lower() != 'html':
+        root = _coerce_tree_to_xhtml(root)
+        tree = etree.ElementTree(root)
+
+    _sync_lang_attributes(root)
+    return tree
+
+
+def _coerce_tree_to_xhtml(node, root_nsmap: dict | None = None):
+    """Recursively move a recovered HTML tree into the XHTML namespace."""
+    if not isinstance(node.tag, str):
+        return copy.deepcopy(node)
+
+    is_root = node.getparent() is None
+    if is_root:
+        root_nsmap = _collect_root_nsmap(node)
+
+    new_node = etree.Element(
+        f'{{{XHTML_NS}}}{_local_name(node.tag)}',
+        nsmap=root_nsmap if is_root else None,
+    )
+    for attr, value in node.attrib.items():
+        attr_lower = attr.lower()
+        if attr_lower == 'xmlns' or attr_lower.startswith('xmlns:'):
+            continue
+        if attr_lower == 'xml:lang':
+            new_node.set(f'{{{XML_NS}}}lang', value)
+        elif ':' in attr and root_nsmap:
+            prefix, local = attr.split(':', 1)
+            uri = root_nsmap.get(prefix)
+            if uri:
+                new_node.set(f'{{{uri}}}{local}', value)
+            else:
+                new_node.set(attr, value)
+        else:
+            new_node.set(attr, value)
+
+    new_node.text = node.text
+    new_node.tail = node.tail
+    for child in node:
+        new_node.append(_coerce_tree_to_xhtml(child, root_nsmap))
+    return new_node
+
+
+def _sync_lang_attributes(root) -> None:
+    """Preserve both lang and xml:lang consistently when either is present."""
+    for el in root.iter():
+        if not isinstance(el.tag, str):
+            continue
+        lang = el.get('lang')
+        xml_lang = el.get(f'{{{XML_NS}}}lang')
+        if lang and not xml_lang:
+            el.set(f'{{{XML_NS}}}lang', lang)
+        elif xml_lang and not lang:
+            el.set('lang', xml_lang)
+
+
+def _local_name(name: str) -> str:
+    if name.startswith('{'):
+        return name.split('}', 1)[1]
+    return name
+
+
+def _namespace_uri(name: str) -> str | None:
+    if name.startswith('{'):
+        return name[1:].split('}', 1)[0]
+    return None
+
+
+def _collect_root_nsmap(node) -> dict:
+    nsmap = {k: v for k, v in (node.nsmap or {}).items() if k is not None}
+    for attr, value in node.attrib.items():
+        if attr.lower().startswith('xmlns:'):
+            nsmap[attr.split(':', 1)[1]] = value
+    nsmap[None] = XHTML_NS
+    return nsmap
