@@ -120,6 +120,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--eink-quantize", dest="eink_quantize", action="store_true", help="quantize images to four gray levels")
     parser.add_argument("--no-eink-quantize", dest="eink_quantize", action="store_false", help=argparse.SUPPRESS)
+    parser.add_argument("--auto-crop", action="store_true", help="trim uniform image margins before fitting to the screen")
     parser.add_argument("-W", "--max-width", type=int, default=None, help="override maximum image width in px")
     parser.add_argument("-H", "--max-height", type=int, default=None, help="override maximum image height in px")
     parser.add_argument(
@@ -197,6 +198,7 @@ def build_options(args: argparse.Namespace) -> ProcessingOptions:
         max_width=args.max_width,
         max_height=args.max_height,
         eink_quantize=args.eink_quantize,
+        auto_crop=args.auto_crop,
         remove_fonts=args.remove_fonts,
         remove_unused_css=args.remove_css,
         light_novel_mode=args.light_novel or args.split != "none",

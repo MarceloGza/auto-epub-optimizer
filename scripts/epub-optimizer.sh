@@ -97,6 +97,7 @@ process_drop_dir() {
     [ -n "$EPUB_NO_REMOVE_FONTS" ] && optimizer_args+=("--no-remove-fonts")
     [ -n "$EPUB_NO_REMOVE_CSS" ] && optimizer_args+=("--no-remove-css")
     [ -n "$EPUB_EINK_QUANTIZE" ] && optimizer_args+=("--eink-quantize")
+    [ -n "$EPUB_AUTO_CROP" ] && optimizer_args+=("--auto-crop")
     [ -n "$EPUB_REMOVE_FONTS" ] && optimizer_args+=("--remove-fonts")
     [ -n "$EPUB_REMOVE_CSS" ] && optimizer_args+=("--remove-css")
     [ -n "$EPUB_LIGHT_NOVEL" ] && optimizer_args+=("--light-novel")

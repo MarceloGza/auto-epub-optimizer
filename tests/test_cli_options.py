@@ -19,6 +19,7 @@ class CliOptionTests(unittest.TestCase):
         self.assertEqual((options.max_width, options.max_height), (480, 800))
         self.assertEqual(options.quality, 85)
         self.assertFalse(options.eink_quantize)
+        self.assertFalse(options.auto_crop)
         self.assertFalse(options.remove_fonts)
         self.assertFalse(options.remove_unused_css)
         self.assertFalse(options.generate_missing_cover)
@@ -26,11 +27,14 @@ class CliOptionTests(unittest.TestCase):
         self.assertFalse(options.text_cleanup)
 
     def test_x3_profile_and_dimension_override(self):
-        args = build_parser().parse_args(['--device', 'x3', '--max-width', '500', 'book.epub'])
+        args = build_parser().parse_args([
+            '--device', 'x3', '--max-width', '500', '--auto-crop', 'book.epub',
+        ])
         apply_device_defaults(args)
         options = build_options(args)
 
         self.assertEqual((options.max_width, options.max_height), (500, 792))
+        self.assertTrue(options.auto_crop)
 
 
 if __name__ == '__main__':

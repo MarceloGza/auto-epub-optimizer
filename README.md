@@ -129,6 +129,7 @@ Edit `~/.config/epub-optimizer/.env`:
 | `EPUB_MAX_HEIGHT`      | Optional max image height override                                                                                                 |
 | `EPUB_CONTRAST`        | Optional - set to `1` to enable contrast boost                                                                                     |
 | `EPUB_CONTRAST_FACTOR` | Optional contrast multiplier used when contrast boost is enabled, default `1.0`                                                     |
+| `EPUB_AUTO_CROP`       | Optional - set to `1` to trim uniform margins and scale illustration content to fit                                               |
 | `EPUB_LIGHT_NOVEL`     | Optional - set to `1` to rotate/split oversized landscape light-novel artwork                                                      |
 | `EPUB_SPLIT_LONG_SECTIONS` | Optional - set to `1` to split oversized XHTML spine items into smaller reader sections                                         |
 | `EPUB_SECTION_SPLIT_WORD_THRESHOLD` | Optional visible-word threshold for `EPUB_SPLIT_LONG_SECTIONS`, default `2000`                                       |
@@ -256,6 +257,7 @@ The output filename may be normalized from the EPUB's internal metadata or title
 | `--contrast`           | -              | Enable contrast boost                     |
 | `-c, --contrast-factor <n>` | `1.0`     | Contrast multiplier used with `--contrast` |
 | `--eink-quantize`      | -              | Opt in to 4-level image quantization      |
+| `--auto-crop`          | -              | Trim uniform margins before image fitting  |
 | `-W, --max-width <n>`  | profile        | Override max image width                  |
 | `-H, --max-height <n>` | profile        | Override max image height                 |
 | `--light-novel`        | -              | Rotate/split oversized landscape artwork  |
@@ -275,14 +277,26 @@ The output filename may be normalized from the EPUB's internal metadata or title
 
 The Python CLI checks for DRM, extracts the EPUB safely, converts images to baseline grayscale JPEGs for the selected device, updates image references and media types, unwraps SVG images, removes stale image dimensions, injects CrossPoint's defensive image CSS, syncs an existing NCX identifier, and repackages with the EPUB `mimetype` entry first. Fonts, CSS, metadata, text, and spine sections are preserved unless an explicit cleanup option is passed.
 
+### Calibre-Web-Automated passthrough
+
+Calibre-Web-Automated (CWA) can rewrite an optimized EPUB before importing it. In CWA Settings, disable these services when the library copy must remain byte-for-byte unchanged:
+
+- **Enable CWA Kindle EPUB Fixer** - disable this first; it always rebuilds the EPUB ZIP during ingest
+- **Enable CWA Automatic Cover & Metadata Enforcement Service** - disable this to prevent later Web UI edits from being embedded into the EPUB
+- **Enable Automatic Metadata Fetching for New Books** - disable this if imported metadata and covers must also remain untouched
+
+Either disable **Enable CWA Auto-Convert**, or keep its target format set to EPUB. CWA skips `ebook-convert` when an incoming EPUB already matches the EPUB target. OPDS serving itself does not modify files.
+
+These settings only affect future imports. Delete or overwrite any library EPUB that CWA already processed, then re-import the optimizer output. Comparing SHA-256 hashes before and after import is the simplest passthrough check.
+
 ### Examples
 
 ```bash
 # Standard X4 optimization
 python3 cli/optimize.py book.epub
 
-# X3 optimization with light-novel handling for large landscape artwork
-python3 cli/optimize.py --device x3 --light-novel --output ./out book.epub
+# X3 optimization with margin cropping and light-novel handling
+python3 cli/optimize.py --device x3 --auto-crop --light-novel --output ./out book.epub
 
 # Keep the old filename suffix convention
 python3 cli/optimize.py --suffix=-optimized book.epub

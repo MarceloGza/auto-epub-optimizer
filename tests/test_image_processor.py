@@ -5,7 +5,7 @@ import unittest
 import zipfile
 from pathlib import Path
 
-from PIL import Image
+from PIL import Image, ImageDraw
 from lxml import etree
 
 
@@ -84,6 +84,43 @@ class LightNovelImageTests(unittest.TestCase):
         self.assertEqual(len(results), 1)
         self.assertEqual(self._size(results[0].output_bytes), (528, 102))
 
+    def test_ordinary_landscape_is_resized_without_rotation(self):
+        results = process_image(
+            self._png((589, 458)),
+            'illustration.png',
+            self._x3_options(),
+        )
+
+        self.assertEqual(len(results), 1)
+        self.assertEqual(self._size(results[0].output_bytes), (528, 411))
+
+    def test_auto_crop_trims_uniform_margins_and_scales_content(self):
+        image = Image.new('RGB', (412, 450), 'white')
+        ImageDraw.Draw(image).rectangle((21, 16, 389, 424), fill='black')
+
+        result = process_image(
+            self._encode(image, 'PNG'),
+            'illustration.png',
+            ImageOptions(max_width=528, max_height=792, auto_crop=True),
+        )[0]
+
+        self.assertEqual(self._size(result.output_bytes), (528, 583))
+        self.assertIn('auto-cropped 412x450→385x425', result.details)
+
+    def test_auto_crop_preserves_protected_cover(self):
+        image = Image.new('RGB', (412, 450), 'white')
+        ImageDraw.Draw(image).rectangle((21, 16, 389, 424), fill='black')
+
+        result = process_image(
+            self._encode(image, 'PNG'),
+            'front.png',
+            ImageOptions(max_width=528, max_height=792, auto_crop=True),
+            protect_auto_crop=True,
+        )[0]
+
+        self.assertEqual(self._size(result.output_bytes), (412, 450))
+        self.assertNotIn('auto-cropped', result.details)
+
     def test_large_double_page_spread_is_split(self):
         results = process_image(
             self._png((1600, 700)),
@@ -159,8 +196,12 @@ class LightNovelImageTests(unittest.TestCase):
     @staticmethod
     def _png(size):
         image = Image.new('RGB', size, 'white')
+        return LightNovelImageTests._encode(image, 'PNG')
+
+    @staticmethod
+    def _encode(image, image_format):
         output = io.BytesIO()
-        image.save(output, format='PNG')
+        image.save(output, format=image_format)
         return output.getvalue()
 
     @staticmethod

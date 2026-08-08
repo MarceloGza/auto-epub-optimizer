@@ -10,10 +10,11 @@ X4 specs (SSD1677 controller):
 """
 
 import io
+import re
 from pathlib import Path
 from dataclasses import dataclass
 
-from PIL import Image, ImageEnhance, ImageOps, ImageDraw, ImageFont
+from PIL import Image, ImageChops, ImageEnhance, ImageOps, ImageDraw, ImageFont, ImageStat
 
 
 # Device profiles use portrait orientation (short edge x long edge).
@@ -36,6 +37,15 @@ MAX_IMAGE_DIMENSION = 1024
 # SSD1677 supports 4-level grayscale: black, dark gray, light gray, white
 EINK_PALETTE_LEVELS = [0, 85, 170, 255]
 
+CROP_WHITE_THRESHOLD = 245
+CROP_BACKGROUND_TOLERANCE = 28
+CROP_BACKGROUND_MAX_SPREAD = 24
+CROP_EDGE_SAMPLE_SIZE = 12
+CROP_PADDING_PX = 8
+MIN_CROP_SAVINGS_RATIO = 0.08
+MIN_COLOR_CROP_SAVINGS_RATIO = 0.20
+MIN_CROP_DIMENSION = 240
+
 SUPPORTED_EXTENSIONS = {'.png', '.gif', '.webp', '.bmp', '.jpeg', '.jpg', '.tif', '.tiff'}
 
 
@@ -48,6 +58,7 @@ class ImageOptions:
     max_width: int = X4_WIDTH
     max_height: int = X4_HEIGHT
     eink_quantize: bool = False
+    auto_crop: bool = False
     light_novel_mode: bool = False
     light_novel_rotate_left: bool = True
 
@@ -135,6 +146,82 @@ def _handle_transparency(img: Image.Image) -> Image.Image:
     return img
 
 
+def _estimate_crop_background(img: Image.Image) -> tuple[float, float, float] | None:
+    width, height = img.size
+    sample_size = min(CROP_EDGE_SAMPLE_SIZE, width // 8, height // 8)
+    if sample_size < 2:
+        return None
+
+    points = (
+        (0, 0),
+        (width - sample_size, 0),
+        (0, height - sample_size),
+        (width - sample_size, height - sample_size),
+        ((width - sample_size) // 2, 0),
+        ((width - sample_size) // 2, height - sample_size),
+        (0, (height - sample_size) // 2),
+        (width - sample_size, (height - sample_size) // 2),
+    )
+    samples = []
+    for x, y in points:
+        region = img.crop((x, y, x + sample_size, y + sample_size))
+        samples.append(tuple(ImageStat.Stat(region).mean[:3]))
+
+    average = tuple(sum(sample[channel] for sample in samples) / len(samples)
+                    for channel in range(3))
+    max_spread = max(
+        abs(sample[channel] - average[channel])
+        for sample in samples
+        for channel in range(3)
+    )
+    return None if max_spread > CROP_BACKGROUND_MAX_SPREAD else average
+
+
+def _auto_crop_margins(img: Image.Image, filename: str,
+                       protected: bool) -> tuple[Image.Image, bool]:
+    width, height = img.size
+    if protected or width < MIN_CROP_DIMENSION or height < MIN_CROP_DIMENSION:
+        return img, False
+    if re.search(r'^(?:cover|thumbnail|thumb|icon)[^/]*\.(?:jpe?g|png|gif|webp|bmp)$',
+                 Path(filename).name, re.I):
+        return img, False
+
+    rgb = img.convert('RGB')
+    background = _estimate_crop_background(rgb)
+    if background is not None:
+        background_image = Image.new('RGB', rgb.size, tuple(round(value) for value in background))
+        channels = ImageChops.difference(rgb, background_image).split()
+        masks = [channel.point(lambda value: 255 if value > CROP_BACKGROUND_TOLERANCE else 0)
+                 for channel in channels]
+    else:
+        masks = [channel.point(lambda value: 255 if value < CROP_WHITE_THRESHOLD else 0)
+                 for channel in rgb.split()]
+    content_mask = ImageChops.lighter(ImageChops.lighter(masks[0], masks[1]), masks[2])
+    bounds = content_mask.getbbox()
+    if bounds is None:
+        return img, False
+
+    left = max(0, bounds[0] - CROP_PADDING_PX)
+    top = max(0, bounds[1] - CROP_PADDING_PX)
+    right = min(width, bounds[2] + CROP_PADDING_PX)
+    bottom = min(height, bounds[3] + CROP_PADDING_PX)
+    crop_width = right - left
+    crop_height = bottom - top
+    saved_ratio = 1 - ((crop_width * crop_height) / (width * height))
+    is_near_white = background is not None and all(
+        value >= CROP_WHITE_THRESHOLD for value in background
+    )
+    min_saved_ratio = (
+        MIN_COLOR_CROP_SAVINGS_RATIO
+        if background is not None and not is_near_white
+        else MIN_CROP_SAVINGS_RATIO
+    )
+    if saved_ratio < min_saved_ratio:
+        return img, False
+
+    return rgb.crop((left, top, right, bottom)), True
+
+
 def _handle_light_novel(img: Image.Image, rotate_left: bool,
                         max_width: int, max_height: int) -> list[Image.Image]:
     """
@@ -143,14 +230,12 @@ def _handle_light_novel(img: Image.Image, rotate_left: bool,
     """
     width, height = img.size
 
-    if width <= height or (width <= max_width and height <= max_height):
+    if width <= height or width < max_height or (width <= max_width and height <= max_height):
         return [img]
 
     aspect = width / height
 
     if aspect > 1.8:
-        if width < max_height:
-            return [img]
         # Double-page spread — split into two portrait pages
         mid = width // 2
         right_half = img.crop((mid, 0, width, height))
@@ -162,7 +247,8 @@ def _handle_light_novel(img: Image.Image, rotate_left: bool,
         return [rotated]
 
 
-def process_image(image_bytes: bytes, filename: str, options: ImageOptions = None) -> list[ImageResult]:
+def process_image(image_bytes: bytes, filename: str, options: ImageOptions = None,
+                  protect_auto_crop: bool = False) -> list[ImageResult]:
     """
     Process a single image for X4 optimization.
     Returns a list of ImageResult (usually 1, but Light Novel mode may split into 2).
@@ -205,8 +291,14 @@ def process_image(image_bytes: bytes, filename: str, options: ImageOptions = Non
     if img.mode not in ('RGB', 'L'):
         img = img.convert('RGB')
 
+    source_size = img.size
+    light_novel_eligible = img.width > img.height and img.width >= options.max_height
+    source_was_cropped = False
+    if options.auto_crop:
+        img, source_was_cropped = _auto_crop_margins(img, filename, protect_auto_crop)
+
     # Light Novel mode — handle landscape images
-    if options.light_novel_mode:
+    if options.light_novel_mode and light_novel_eligible:
         images = _handle_light_novel(
             img,
             options.light_novel_rotate_left,
@@ -223,6 +315,10 @@ def process_image(image_bytes: bytes, filename: str, options: ImageOptions = Non
         # Track format conversion
         if original_ext != '.jpg' and original_ext != '.jpeg':
             details_parts.append(f"{original_ext.upper().strip('.')}→JPEG")
+        if source_was_cropped:
+            details_parts.append(
+                f"auto-cropped {source_size[0]}x{source_size[1]}→{img.width}x{img.height}"
+            )
 
         orig_w, orig_h = current_img.size
 
@@ -234,10 +330,11 @@ def process_image(image_bytes: bytes, filename: str, options: ImageOptions = Non
             details_parts.append(f"clamped {orig_w}x{orig_h}→{clamped_w}x{clamped_h}")
             orig_w, orig_h = clamped_w, clamped_h
 
-        # Resize to fit X4 screen
-        if orig_w > options.max_width or orig_h > options.max_height:
-            current_img.thumbnail((options.max_width, options.max_height),
-                                  Image.Resampling.LANCZOS)
+        # Cropped content is allowed to scale up; untouched images only scale down.
+        if source_was_cropped or orig_w > options.max_width or orig_h > options.max_height:
+            scale = min(options.max_width / orig_w, options.max_height / orig_h)
+            new_size = (max(1, round(orig_w * scale)), max(1, round(orig_h * scale)))
+            current_img = current_img.resize(new_size, Image.Resampling.LANCZOS)
             new_w, new_h = current_img.size
             details_parts.append(f"resized {orig_w}x{orig_h}→{new_w}x{new_h}")
 

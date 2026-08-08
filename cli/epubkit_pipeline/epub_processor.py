@@ -6,9 +6,10 @@ Orchestrates all processing steps and generates validation reports.
 import os
 import shutil
 import tempfile
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from dataclasses import dataclass, field
 from typing import Callable
+from urllib.parse import unquote
 
 from lxml import etree
 
@@ -46,6 +47,7 @@ class ProcessingOptions:
     max_width: int = 480
     max_height: int = 800
     eink_quantize: bool = False
+    auto_crop: bool = False
     remove_fonts: bool = False
     remove_unused_css: bool = False
     light_novel_mode: bool = False
@@ -204,6 +206,7 @@ def process_epub(input_path: str, output_path: str,
             max_width=options.max_width,
             max_height=options.max_height,
             eink_quantize=options.eink_quantize,
+            auto_crop=options.auto_crop,
             light_novel_mode=options.light_novel_mode,
             light_novel_rotate_left=options.light_novel_rotate_left,
         )
@@ -212,6 +215,12 @@ def process_epub(input_path: str, output_path: str,
         report.images_total = len(image_files)
         processed_images = {}  # old_rel_path -> new_filename
         split_images = {}  # old_rel_path -> new_filenames
+        normalized_cover_href = unquote(metadata.get('cover_href', '')).replace('\\', '/')
+        cover_image_bytes = None
+        if normalized_cover_href:
+            cover_path = Path(opf_path).parent.joinpath(*PurePosixPath(normalized_cover_href).parts)
+            if cover_path.exists():
+                cover_image_bytes = cover_path.read_bytes()
 
         for i, img_path in enumerate(image_files):
             pct = 15 + int(45 * (i / max(len(image_files), 1)))
@@ -226,7 +235,17 @@ def process_epub(input_path: str, output_path: str,
             if not should_process(img_path):
                 continue
 
-            results = process_image(img_bytes, Path(img_path).name, image_options)
+            old_rel = Path(img_path).relative_to(Path(opf_path).parent).as_posix()
+            protect_auto_crop = (
+                old_rel == normalized_cover_href
+                or (cover_image_bytes is not None and img_bytes == cover_image_bytes)
+            )
+            results = process_image(
+                img_bytes,
+                Path(img_path).name,
+                image_options,
+                protect_auto_crop=protect_auto_crop,
+            )
             converted_results = [result for result in results if result.was_converted]
 
             for result in converted_results:
@@ -250,7 +269,6 @@ def process_epub(input_path: str, output_path: str,
             if original_name not in {result.new_filename for result in converted_results}:
                 os.unlink(img_path)
 
-            old_rel = Path(img_path).relative_to(Path(opf_path).parent).as_posix()
             if len(converted_results) > 1:
                 split_images[old_rel] = [result.new_filename for result in converted_results]
             else:
