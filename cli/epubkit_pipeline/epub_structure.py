@@ -152,55 +152,52 @@ def add_image_to_opf(opf_path: str, image_href: str, image_id: str) -> None:
 
 def update_xhtml_references(xhtml_path: str, rename_map: dict) -> int:
     """
-    Update image references in an XHTML file.
+    Update image references in an XHTML file using targeted regex replacement,
+    preserving the original document byte-for-byte otherwise.
     Returns count of updated references.
     """
-    try:
-        tree = etree.parse(xhtml_path)
-    except etree.XMLSyntaxError:
-        parser = etree.HTMLParser(recover=True)
-        tree = etree.parse(xhtml_path, parser)
-
-    root = tree.getroot()
+    with open(xhtml_path, 'rb') as f:
+        raw = f.read()
+    text = raw.decode('utf-8', 'replace')
+    original = text
     updated = 0
 
-    # Update <img src="...">
-    for img in root.iter():
-        if not _is_element(img):
+    for old_path, new_path in rename_map.items():
+        old_name = Path(old_path).name
+        new_name = Path(new_path).name
+        if old_name == new_name:
             continue
-        tag = img.tag.split('}')[-1] if '}' in str(img.tag) else str(img.tag)
 
-        if tag == 'img':
-            src = img.get('src', '')
-            new_src = _resolve_reference(src, rename_map)
-            if new_src != src:
-                img.set('src', new_src)
-                updated += 1
+        # Replace in src="...", href="..." and xlink:href="..." attributes
+        def replacer(m, old=old_name, new=new_name):
+            attr, val = m.group(1), m.group(2)
+            decoded = unquote(val)
+            if Path(decoded).name == old:
+                new_val = decoded.replace(old, new)
+                return f'{attr}="{new_val}"'
+            return m.group(0)
 
-        elif tag == 'image':
-            # SVG <image xlink:href="...">
-            href = img.get(f'{{{NS_XLINK}}}href', '') or img.get('href', '')
-            new_href = _resolve_reference(href, rename_map)
-            if new_href != href:
-                if img.get(f'{{{NS_XLINK}}}href') is not None:
-                    img.set(f'{{{NS_XLINK}}}href', new_href)
-                else:
-                    img.set('href', new_href)
-                updated += 1
+        new_text = re.sub(r'((?:xlink:)?(?:src|href))="([^"]+)"', replacer, text)
+        if new_text != text:
+            text = new_text
+            updated += 1
 
     # Update inline style background-image references
-    for el in root.iter():
-        if not _is_element(el):
-            continue
-        style = el.get('style') or ''
-        if 'url(' in style:
-            new_style = _update_css_urls(style, rename_map)
-            if new_style != style:
-                el.set('style', new_style)
-                updated += 1
+    def style_replacer(m):
+        style = m.group(1)
+        if 'url(' not in style:
+            return m.group(0)
+        new_style = _update_css_urls(style, rename_map)
+        return f'style="{new_style}"'
 
-    if updated > 0:
-        tree.write(xhtml_path, xml_declaration=True, encoding='utf-8', pretty_print=True)
+    new_text = re.sub(r'style="([^"]*)"', style_replacer, text)
+    if new_text != text:
+        text = new_text
+        updated += 1
+
+    if text != original:
+        with open(xhtml_path, 'wb') as f:
+            f.write(text.encode('utf-8'))
 
     return updated
 
@@ -274,6 +271,10 @@ def fix_svg_covers(epub_dir: str, opf_path: str) -> int:
         id_to_href[item.get('id', '')] = item.get('href', '')
 
     # Check first few spine items for SVG cover wrappers
+    svg_block_re = re.compile(r'<(?:\w+:)?svg\b[^>]*>.*?</(?:\w+:)?svg>', re.S | re.I)
+    image_tag_re = re.compile(r'<(?:\w+:)?image\b[^>]*/?>', re.I)
+    href_attr_re = re.compile(r'\b(?:xlink:)?href="([^"]*)"')
+
     spine_items = [s for s in spine if _is_element(s)]
     for itemref in spine_items[:3]:
         idref = itemref.get('idref', '')
@@ -285,72 +286,50 @@ def fix_svg_covers(epub_dir: str, opf_path: str) -> int:
         if not os.path.exists(xhtml_path):
             continue
 
-        try:
-            doc_tree = etree.parse(xhtml_path)
-        except Exception:
-            continue
+        with open(xhtml_path, 'rb') as f:
+            text = f.read().decode('utf-8', 'replace')
+        original = text
+        doc_fixed = 0
 
-        doc_root = doc_tree.getroot()
+        def unwrap(m):
+            nonlocal doc_fixed
+            block = m.group(0)
+            images = image_tag_re.findall(block)
+            if len(images) != 1:
+                return block
+            href_match = href_attr_re.search(images[0])
+            if not href_match or not href_match.group(1):
+                return block
+            doc_fixed += 1
+            return ('<img src="%s" alt="Cover" '
+                    'style="max-width:100%%;max-height:100%%;display:block;margin:auto"/>'
+                    % href_match.group(1))
 
-        # Look for SVG elements containing a single <image>
-        svgs = doc_root.findall(f'.//{{{NS_SVG}}}svg')
-        if not svgs:
-            svgs = doc_root.findall('.//svg')
+        text = svg_block_re.sub(unwrap, text)
 
-        for svg in svgs:
-            images = svg.findall(f'{{{NS_SVG}}}image')
-            if not images:
-                images = svg.findall('image')
-
-            if len(images) == 1:
-                image = images[0]
-                img_href = (image.get(f'{{{NS_XLINK}}}href', '') or
-                           image.get('href', ''))
-
-                if not img_href:
-                    continue
-
-                # Replace SVG with simple <img>
-                parent = svg.getparent()
-                if parent is None:
-                    continue
-
-                # Determine namespace
-                ns_prefix = ''
-                if '}' in str(parent.tag):
-                    ns_prefix = parent.tag.split('}')[0] + '}'
-
-                img_el = etree.Element(f'{ns_prefix}img' if ns_prefix else 'img')
-                img_el.set('src', img_href)
-                img_el.set('alt', 'Cover')
-                img_el.set('style', 'max-width:100%;max-height:100%;display:block;margin:auto')
-
-                # Replace SVG with img
-                idx = list(parent).index(svg)
-                parent.remove(svg)
-                parent.insert(idx, img_el)
-                fixed += 1
-
-        if fixed > 0:
-            doc_tree.write(xhtml_path, xml_declaration=True, encoding='utf-8', pretty_print=True)
+        if doc_fixed > 0 and text != original:
+            with open(xhtml_path, 'wb') as f:
+                f.write(text.encode('utf-8'))
+            fixed += doc_fixed
 
     return fixed
 
 
 def fix_toc(epub_dir: str, opf_path: str) -> tuple[bool, str]:
     """
-    Check and repair/regenerate the Table of Contents.
+    Check and repair the Table of Contents.
+
+    Matches the official CrossPoint plugin behavior: if an NCX exists on disk,
+    only sync its dtb:uid to the OPF identifier (never rebuild the navMap, so
+    existing chapter metadata is preserved). A basic NCX is generated only when
+    none exists. The EPUB 3 nav document is never touched.
+
     Returns (was_fixed, description).
     """
     tree = etree.parse(opf_path)
     root = tree.getroot()
     opf_dir = str(Path(opf_path).parent)
 
-    # Check EPUB version
-    version = root.get('version', '2.0')
-    is_epub3 = version.startswith('3')
-
-    # Check for existing NCX
     manifest = _find_element(root, 'manifest')
     spine = _find_element(root, 'spine')
     if manifest is None or spine is None:
@@ -361,48 +340,12 @@ def fix_toc(epub_dir: str, opf_path: str) -> tuple[bool, str]:
     # Find NCX file
     ncx_href = None
     ncx_id = None
-    nav_href = None
-    nav_id = None
     for item in manifest:
         if not _is_element(item):
             continue
-        media_type = item.get('media-type', '')
-        if media_type == 'application/x-dtbncx+xml':
+        if item.get('media-type', '') == 'application/x-dtbncx+xml':
             ncx_href = item.get('href', '')
             ncx_id = item.get('id', '')
-        properties = (item.get('properties') or '').split()
-        if 'nav' in properties:
-            nav_href = item.get('href', '')
-            nav_id = item.get('id', '')
-
-    if is_epub3 and nav_href is None:
-        discovered_nav = _discover_nav_document(manifest, opf_dir)
-        if discovered_nav is not None:
-            nav_id = discovered_nav.get('id', '')
-            nav_href = discovered_nav.get('href', '')
-
-    # Build spine reading order
-    id_to_href = {}
-    for item in manifest:
-        if not _is_element(item):
-            continue
-        id_to_href[item.get('id', '')] = item.get('href', '')
-
-    spine_hrefs = []
-    for itemref in spine:
-        if not _is_element(itemref):
-            continue
-        idref = itemref.get('idref', '')
-        href = id_to_href.get(idref, '')
-        if href:
-            spine_hrefs.append((idref, href))
-
-    if not spine_hrefs:
-        return False, "Empty spine"
-
-    chapters = _extract_chapter_info(opf_dir, spine_hrefs)
-    changed = False
-    messages = []
 
     if ncx_href:
         ncx_path = os.path.join(opf_dir, unquote(ncx_href))
@@ -411,7 +354,35 @@ def fix_toc(epub_dir: str, opf_path: str) -> tuple[bool, str]:
         ncx_href = 'toc.ncx'
         ncx_id = 'ncx'
 
-    if not _ncx_matches_spine(ncx_path, chapters, metadata['uid']):
+    changed = False
+    messages = []
+
+    if os.path.exists(ncx_path):
+        # NCX exists: only sync dtb:uid (preserve navMap/chapter metadata)
+        if _sync_ncx_uid(ncx_path, metadata['uid']):
+            changed = True
+            messages.append("synced NCX dtb:uid")
+    else:
+        # No NCX on disk: generate a basic one from the spine
+        id_to_href = {}
+        for item in manifest:
+            if not _is_element(item):
+                continue
+            id_to_href[item.get('id', '')] = item.get('href', '')
+
+        spine_hrefs = []
+        for itemref in spine:
+            if not _is_element(itemref):
+                continue
+            idref = itemref.get('idref', '')
+            href = id_to_href.get(idref, '')
+            if href:
+                spine_hrefs.append((idref, href))
+
+        if not spine_hrefs:
+            return False, "Empty spine"
+
+        chapters = _extract_chapter_info(opf_dir, spine_hrefs)
         _generate_ncx(ncx_path, chapters, metadata['uid'], metadata['title'], metadata['author'])
         changed = True
         messages.append(f"generated NCX with {len(chapters)} entries")
@@ -437,45 +408,38 @@ def fix_toc(epub_dir: str, opf_path: str) -> tuple[bool, str]:
         spine.set('toc', ncx_id)
         changed = True
 
-    if is_epub3:
-        if nav_href:
-            nav_path = os.path.join(opf_dir, unquote(nav_href))
-        else:
-            nav_href = 'nav.xhtml'
-            nav_id = nav_id or 'nav'
-            nav_path = os.path.join(opf_dir, nav_href)
-
-        if not _nav_document_matches_spine(nav_path, chapters):
-            _generate_nav_document(nav_path, chapters, metadata['title'], metadata['author'])
-            changed = True
-            messages.append(f"updated nav document with {len(chapters)} entries")
-
-        nav_item = _find_nav_manifest_item(manifest)
-        if nav_item is None:
-            nav_item = etree.SubElement(manifest, f'{{{NS_OPF}}}item')
-            nav_item.set('id', nav_id or 'nav')
-            nav_item.set('href', nav_href)
-            nav_item.set('media-type', 'application/xhtml+xml')
-            nav_item.set('properties', 'nav')
-            changed = True
-        else:
-            if nav_item.get('href') != nav_href:
-                nav_item.set('href', nav_href)
-                changed = True
-            if nav_item.get('media-type') != 'application/xhtml+xml':
-                nav_item.set('media-type', 'application/xhtml+xml')
-                changed = True
-            properties = set((nav_item.get('properties') or '').split())
-            if 'nav' not in properties:
-                properties.add('nav')
-                nav_item.set('properties', ' '.join(sorted(properties)))
-                changed = True
-
     if changed:
-        tree.write(opf_path, xml_declaration=True, encoding='utf-8', pretty_print=True)
+        tree.write(opf_path, xml_declaration=True, encoding='utf-8', pretty_print=False)
         return True, "; ".join(messages) if messages else "Updated TOC metadata"
 
     return False, "TOC is valid"
+
+
+def _sync_ncx_uid(ncx_path: str, uid: str) -> bool:
+    """Sync the NCX dtb:uid meta content to the OPF identifier via targeted regex.
+
+    Returns True if the file was modified.
+    """
+    target = uid or 'unknown'
+    with open(ncx_path, 'rb') as f:
+        text = f.read().decode('utf-8', 'replace')
+
+    new_text = re.sub(
+        r'(<meta\b[^>]*\bname="dtb:uid"[^>]*\bcontent=")[^"]*(")',
+        lambda m: m.group(1) + target + m.group(2),
+        text,
+    )
+    if new_text == text:
+        new_text = re.sub(
+            r'(<meta\b[^>]*\bcontent=")[^"]*("[^>]*\bname="dtb:uid")',
+            lambda m: m.group(1) + target + m.group(2),
+            text,
+        )
+    if new_text == text:
+        return False
+    with open(ncx_path, 'wb') as f:
+        f.write(new_text.encode('utf-8'))
+    return True
 
 
 def _check_ncx_references(nav_points, opf_dir: str, ncx_path: str) -> list:
@@ -620,125 +584,6 @@ def _opf_book_metadata(root) -> dict[str, str]:
         'title': (title.text or '').strip() if title is not None and title.text else '',
         'author': (creator.text or '').strip() if creator is not None and creator.text else '',
     }
-
-
-def _ncx_matches_spine(ncx_path: str, chapters: list[dict], uid: str) -> bool:
-    if not os.path.exists(ncx_path):
-        return False
-    try:
-        tree = etree.parse(ncx_path)
-    except Exception:
-        return False
-
-    head = tree.getroot().find(f'.//{{{NS_NCX}}}head')
-    if head is None:
-        return False
-
-    meta_values = {
-        meta.get('name'): meta.get('content')
-        for meta in head.findall(f'{{{NS_NCX}}}meta')
-        if meta.get('name')
-    }
-    if meta_values.get('dtb:uid') != (uid or 'unknown'):
-        return False
-    if meta_values.get('dtb:totalPageCount') != '0' or meta_values.get('dtb:maxPageNumber') != '0':
-        return False
-
-    nav_points = tree.getroot().findall(f'.//{{{NS_NCX}}}navPoint')
-    if len(nav_points) != len(chapters):
-        return False
-
-    ncx_dir = Path(ncx_path).parent.resolve()
-    for nav_point, chapter in zip(nav_points, chapters):
-        content = nav_point.find(f'{{{NS_NCX}}}content')
-        if content is None or not content.get('src'):
-            return False
-        src_path = (ncx_dir / unquote(content.get('src', '').split('#', 1)[0])).resolve()
-        if src_path != Path(chapter['path']).resolve():
-            return False
-    return True
-
-
-def _nav_document_matches_spine(nav_path: str, chapters: list[dict]) -> bool:
-    if not os.path.exists(nav_path):
-        return False
-    try:
-        tree = etree.parse(nav_path)
-    except Exception:
-        return False
-
-    nav = tree.getroot().find('.//xhtml:nav[@epub:type="toc"]', NAMESPACES)
-    if nav is None:
-        for candidate in tree.getroot().findall('.//xhtml:nav', NAMESPACES):
-            epub_type = candidate.get(f'{{{NS_EPUB}}}type') or candidate.get('epub:type')
-            if epub_type and 'toc' in epub_type.split():
-                nav = candidate
-                break
-    if nav is None:
-        return False
-
-    hrefs = [
-        (Path(nav_path).parent / unquote(link.get('href', '').split('#', 1)[0])).resolve()
-        for link in nav.findall('.//xhtml:a', NAMESPACES)
-        if link.get('href')
-    ]
-    expected = [Path(chapter['path']).resolve() for chapter in chapters]
-    return hrefs == expected
-
-
-def _generate_nav_document(nav_path: str, chapters: list[dict], title: str, author: str) -> None:
-    html = etree.Element(
-        f'{{{NS_XHTML}}}html',
-        nsmap={None: NS_XHTML, 'epub': NS_EPUB},
-    )
-    head = etree.SubElement(html, f'{{{NS_XHTML}}}head')
-    title_el = etree.SubElement(head, f'{{{NS_XHTML}}}title')
-    title_el.text = title or 'Table of Contents'
-
-    body = etree.SubElement(html, f'{{{NS_XHTML}}}body')
-    nav = etree.SubElement(body, f'{{{NS_XHTML}}}nav')
-    nav.set(f'{{{NS_EPUB}}}type', 'toc')
-    nav.set('role', 'doc-toc')
-    heading = etree.SubElement(nav, f'{{{NS_XHTML}}}h1')
-    heading.text = 'Table of Contents'
-    ol = etree.SubElement(nav, f'{{{NS_XHTML}}}ol')
-    nav_dir = Path(nav_path).parent
-    for chapter in chapters:
-        li = etree.SubElement(ol, f'{{{NS_XHTML}}}li')
-        link = etree.SubElement(li, f'{{{NS_XHTML}}}a')
-        rel_href = os.path.relpath(Path(chapter['path']), nav_dir).replace(os.sep, '/')
-        link.set('href', quote(rel_href, safe='/:@'))
-        link.text = chapter['title']
-
-    etree.ElementTree(html).write(nav_path, xml_declaration=True, encoding='utf-8', pretty_print=True, doctype='<!DOCTYPE html>')
-
-
-def _discover_nav_document(manifest, opf_dir: str):
-    for item in manifest:
-        if not _is_element(item):
-            continue
-        media_type = (item.get('media-type') or '').lower()
-        href = item.get('href', '')
-        if media_type != 'application/xhtml+xml' or not href:
-            continue
-        nav_path = os.path.join(opf_dir, unquote(href))
-        if not os.path.exists(nav_path):
-            continue
-        try:
-            tree = etree.parse(nav_path)
-        except Exception:
-            continue
-        if _has_toc_nav(tree.getroot()):
-            return item
-    return None
-
-
-def _has_toc_nav(root) -> bool:
-    for candidate in root.findall('.//xhtml:nav', NAMESPACES):
-        epub_type = candidate.get(f'{{{NS_EPUB}}}type') or candidate.get('epub:type')
-        if epub_type and 'toc' in epub_type.split():
-            return True
-    return False
 
 
 def find_content_files(epub_dir: str, opf_path: str) -> dict:

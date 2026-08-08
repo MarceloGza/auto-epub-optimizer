@@ -20,6 +20,16 @@ from PIL import Image, ImageEnhance, ImageOps, ImageDraw, ImageFont
 X4_WIDTH = 800
 X4_HEIGHT = 480
 
+# X3 screen dimensions (528x792 portrait panel)
+X3_WIDTH = 528
+X3_HEIGHT = 792
+
+# Device profiles: name -> (width, height)
+DEVICE_PROFILES = {
+    'x4': (X4_WIDTH, X4_HEIGHT),
+    'x3': (X3_WIDTH, X3_HEIGHT),
+}
+
 # Hard limit per X4 JPEG spec
 MAX_IMAGE_DIMENSION = 1024
 
@@ -34,7 +44,7 @@ class ImageOptions:
     grayscale: bool = True
     contrast_boost: bool = False
     contrast_factor: float = 1.0
-    quality: int = 70
+    quality: int = 85
     max_width: int = X4_WIDTH
     max_height: int = X4_HEIGHT
     eink_quantize: bool = True  # Quantize to 4 gray levels (SSD1677)
