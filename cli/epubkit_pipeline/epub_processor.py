@@ -25,7 +25,7 @@ from html_cleaner import (
 )
 from text_cleaner import clean_text_content, TextCleanOptions, TextCleanReport
 from epub_packager import (
-    extract_epub, package_epub, remove_os_artifacts, has_drm, find_opf_path
+    extract_epub, package_epub, remove_os_artifacts, has_drm, find_opf_path, is_valid_epub
 )
 from epub_structure import (
     build_rename_map, update_opf, update_opf_remove_fonts,
@@ -360,6 +360,8 @@ def process_epub(input_path: str, output_path: str,
                 # Remove from OPF manifest
                 update_opf_remove_fonts(opf_path, font_files)
 
+        _prune_encryption_manifest(work_dir)
+
         # Step 14: Normalize whitespace and page breaks (82%)
         _progress(82, "Normalizing content...")
         for xhtml_path in content_files['xhtml']:
@@ -419,6 +421,13 @@ def process_epub(input_path: str, output_path: str,
         # Step 20: Repackage (95%)
         _progress(95, "Repackaging EPUB...")
         package_epub(work_dir, output_path)
+        is_valid, validation_error = is_valid_epub(output_path)
+        if not is_valid:
+            report.success = False
+            report.error = validation_error
+            if os.path.exists(output_path):
+                os.unlink(output_path)
+            return report
 
         # Step 21: Generate output filename
         opf_tree = etree.parse(opf_path)
@@ -502,3 +511,52 @@ def _fmt_size(size_bytes: int) -> str:
             return f"{size_bytes:.1f} {unit}"
         size_bytes /= 1024
     return f"{size_bytes:.1f} TB"
+
+
+def _prune_encryption_manifest(work_dir: str) -> None:
+    """Remove encryption.xml references to resources no longer present on disk."""
+    encryption_path = Path(work_dir) / 'META-INF' / 'encryption.xml'
+    if not encryption_path.exists():
+        return
+
+    try:
+        tree = etree.parse(str(encryption_path))
+    except Exception:
+        return
+
+    root = tree.getroot()
+    removed = False
+    xmlenc_ns = 'http://www.w3.org/2001/04/xmlenc#'
+    entries = root.findall(f'.//{{{xmlenc_ns}}}EncryptedData')
+    for entry in entries:
+        cipher = entry.find(f'.//{{{xmlenc_ns}}}CipherReference')
+        if cipher is None:
+            continue
+        uri = cipher.get('URI', '')
+        if not uri:
+            continue
+        if not _encryption_target_exists(Path(work_dir), encryption_path.parent, uri):
+            parent = entry.getparent()
+            if parent is not None:
+                parent.remove(entry)
+                removed = True
+
+    if not removed:
+        return
+
+    if not root.findall(f'.//{{{xmlenc_ns}}}EncryptedData'):
+        encryption_path.unlink(missing_ok=True)
+        return
+
+    tree.write(str(encryption_path), xml_declaration=True, encoding='utf-8', pretty_print=True)
+
+
+def _encryption_target_exists(root_dir: Path, base_dir: Path, uri: str) -> bool:
+    clean_uri = (uri or '').split('#', 1)[0]
+    if not clean_uri:
+        return False
+    candidates = (
+        (root_dir / clean_uri).resolve(),
+        (base_dir / clean_uri).resolve(),
+    )
+    return any(candidate.exists() for candidate in candidates)
