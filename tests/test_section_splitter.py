@@ -63,9 +63,10 @@ class SectionSplitterTests(unittest.TestCase):
                 self.assertIn('href="chapter__ci_section_', first_part)
                 self.assertIn('#late-anchor"', first_part)
 
+                # NCX navMap is preserved as-is (never regenerated)
                 ncx = zf.read('OEBPS/toc.ncx').decode('utf-8')
                 self.assertIn('chapter.xhtml', ncx)
-                self.assertIn('chapter__ci_section_2.xhtml', ncx)
+                self.assertIn('<text>Long Chapter</text>', ncx)
 
     def _write_fixture(self, path: Path):
         paragraphs = [

@@ -33,6 +33,7 @@ from epub_structure import (
     fix_svg_covers, fix_toc, find_content_files, add_image_to_opf
 )
 from section_splitter import split_long_spine_sections
+from textsplit import split_epub_text
 
 
 @dataclass
@@ -41,7 +42,7 @@ class ProcessingOptions:
     grayscale: bool = True
     contrast_boost: bool = False
     contrast_factor: float = 1.0
-    quality: int = 70
+    quality: int = 85
     max_width: int = 800
     max_height: int = 480
     eink_quantize: bool = True  # 4-level grayscale for SSD1677
@@ -428,6 +429,17 @@ def process_epub(input_path: str, output_path: str,
             if os.path.exists(output_path):
                 os.unlink(output_path)
             return report
+
+        # Step 20b: Text splitting pass (zip-level)
+        _progress(96, "Applying firmware text splits...")
+        try:
+            split_result = split_epub_text(output_path)
+            if split_result['file_splits'] > 0:
+                report.sections_split = (report.sections_split or 0) + split_result['file_splits']
+            if split_result['paras'] > 0:
+                report.synthetic_sections_added = (report.synthetic_sections_added or 0) + split_result['paras']
+        except Exception:
+            pass  # textsplit is best-effort
 
         # Step 21: Generate output filename
         opf_tree = etree.parse(opf_path)

@@ -45,6 +45,7 @@ def package_epub(source_dir: str, output_path: str) -> None:
     """
     Create a valid EPUB ZIP file from a directory.
     - mimetype is first entry, stored (uncompressed), no extra field
+    - JPEG images are stored (already compressed; deflating wastes CPU)
     - All other files are deflated
     - OS artifacts are excluded
     """
@@ -89,7 +90,12 @@ def package_epub(source_dir: str, output_path: str) -> None:
                 if filename in OS_ARTIFACTS:
                     continue
 
-                zf.write(str(filepath), arcname, compress_type=zipfile.ZIP_DEFLATED)
+                # JPEGs are already compressed: store them uncompressed
+                if filename.lower().endswith(('.jpg', '.jpeg')):
+                    compress = zipfile.ZIP_STORED
+                else:
+                    compress = zipfile.ZIP_DEFLATED
+                zf.write(str(filepath), arcname, compress_type=compress)
 
 
 def remove_os_artifacts(directory: str) -> int:
