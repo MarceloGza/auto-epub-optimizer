@@ -40,11 +40,31 @@ process_drop_dir() {
     filename=$(basename "$filepath")
 
     # Atomically move to processing/ to claim the file (prevents double-processing
-    # if multiple WSL2 sessions or scripts are running)
+    # if multiple WSL2 sessions or scripts are running).
+    # Because author subfolders are flattened to the basename, two different
+    # author folders could contain files with the same name.  If the target
+    # staging slot is already occupied (either in-flight or left from a
+    # previous crash), skip with a warning rather than silently clobbering it.
     staging="$processing_dir/$filename"
+    if [ -e "$staging" ]; then
+      log "WARNING: $filename already exists in $processing_dir — skipping $filepath to avoid collision"
+      continue
+    fi
     if ! mv "$filepath" "$staging" 2>/dev/null; then
       # Another process already claimed it — skip
       continue
+    fi
+
+    # After claiming the file, remove the now-empty author subfolder it came
+    # from (if any).  Only do this when the parent is not the watch root itself
+    # and is not one of the internal working directories.
+    parent_dir=$(dirname "$filepath")
+    if [ "$parent_dir" != "$watch_dir" ] && \
+       [ "$parent_dir" != "$processing_dir" ] && \
+       [ "$parent_dir" != "$processed_dir" ] && \
+       [ "$parent_dir" != "$failed_dir" ]; then
+      # rmdir is a no-op unless the directory is truly empty, so this is safe.
+      rmdir "$parent_dir" 2>/dev/null || true
     fi
 
     # Skip zero-byte files (Windows NTFS can recreate empty stubs after a move)
@@ -94,7 +114,11 @@ process_drop_dir() {
       log "ERROR (exit $exit_code): $filename moved to $failed_dir"
     fi
 
-  done < <(find "$watch_dir" -maxdepth 1 -name "*.epub" -print0 2>/dev/null)
+  done < <(find "$watch_dir" -name "*.epub" \
+    -not -path "$processing_dir/*" \
+    -not -path "$processed_dir/*" \
+    -not -path "$failed_dir/*" \
+    -print0 2>/dev/null)
 }
 
 setup_drop_dir "$BOOKDROP_DIR"

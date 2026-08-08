@@ -156,6 +156,8 @@ Each installer will:
 
 Drop any `.epub` file into your `BOOKDROP_DIR`. The optimizer picks it up within `POLL_INTERVAL` seconds, copies the original to Calibre if configured, processes it, and the watcher moves the result to `WATCHER_DEST_DIR`.
 
+The optimizer also recurses into **subfolders** of the drop directory, so tools like Readarr or bookshelf apps that create per-author subdirectories (e.g. `BOOKDROP_DIR/Andy Weir/Project Hail Mary.epub`) work automatically. The author folder path is discarded — only the bare epub filename is preserved when the file is moved into `processing/`, `processed/`, or `failed/`. If two author folders contain a file with the same basename, the second file is skipped with a warning in the log to prevent collisions. Empty author folders are removed automatically after their epub has been claimed.
+
 If you set `OPTIMIZE_ONLY_DIR`, files dropped there go through the same optimization flow but skip the Calibre copy entirely. This is useful for books that are already in your Calibre library and only need an optimized X4 copy.
 
 Inside each configured drop folder you'll find three subfolders that track state:
