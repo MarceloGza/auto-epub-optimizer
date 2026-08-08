@@ -8,7 +8,7 @@ import shutil
 import tempfile
 from pathlib import Path
 from dataclasses import dataclass, field
-from typing import Callable, Optional
+from typing import Callable
 
 from lxml import etree
 
@@ -19,21 +19,21 @@ from metadata_handler import (
     extract_metadata, update_metadata, strip_store_metadata, format_filename
 )
 from html_cleaner import (
-    repair_html, remove_unused_css, collect_used_selectors,
-    remove_embedded_fonts_from_css, find_font_files, normalize_whitespace,
-    add_chapter_page_breaks, strip_unnecessary_attributes
+    apply_crosspoint_xhtml_fixes, remove_unused_css, collect_used_selectors,
+    remove_embedded_fonts_from_css, normalize_whitespace,
+    add_chapter_page_breaks
 )
 from text_cleaner import clean_text_content, TextCleanOptions, TextCleanReport
 from epub_packager import (
     extract_epub, package_epub, remove_os_artifacts, has_drm, find_opf_path, is_valid_epub
 )
 from epub_structure import (
-    build_rename_map, update_opf, update_opf_remove_fonts,
-    update_xhtml_references, update_css_references,
-    fix_svg_covers, fix_toc, find_content_files, add_image_to_opf
+    add_split_images_to_opf, build_rename_map, build_split_image_map,
+    update_opf, update_opf_remove_fonts, update_xhtml_references,
+    update_xhtml_split_references, update_css_references,
+    ensure_cover_meta, fix_svg_covers, fix_toc, find_content_files, add_image_to_opf
 )
 from section_splitter import split_long_spine_sections
-from textsplit import split_epub_text
 
 
 @dataclass
@@ -43,16 +43,16 @@ class ProcessingOptions:
     contrast_boost: bool = False
     contrast_factor: float = 1.0
     quality: int = 85
-    max_width: int = 800
-    max_height: int = 480
-    eink_quantize: bool = True  # 4-level grayscale for SSD1677
-    remove_fonts: bool = True
-    remove_unused_css: bool = True
+    max_width: int = 480
+    max_height: int = 800
+    eink_quantize: bool = False
+    remove_fonts: bool = False
+    remove_unused_css: bool = False
     light_novel_mode: bool = False
     light_novel_rotate_left: bool = True
-    generate_missing_cover: bool = True
-    clean_metadata: bool = True
-    text_cleanup: bool = True
+    generate_missing_cover: bool = False
+    clean_metadata: bool = False
+    text_cleanup: bool = False
     normalize_quotes: bool = True
     split_long_sections: bool = False
     section_split_word_threshold: int = 2000
@@ -211,6 +211,7 @@ def process_epub(input_path: str, output_path: str,
         image_files = content_files['images']
         report.images_total = len(image_files)
         processed_images = {}  # old_rel_path -> new_filename
+        split_images = {}  # old_rel_path -> new_filenames
 
         for i, img_path in enumerate(image_files):
             pct = 15 + int(45 * (i / max(len(image_files), 1)))
@@ -226,30 +227,34 @@ def process_epub(input_path: str, output_path: str,
                 continue
 
             results = process_image(img_bytes, Path(img_path).name, image_options)
+            converted_results = [result for result in results if result.was_converted]
 
-            for j, result in enumerate(results):
-                if result.was_converted:
-                    report.images_converted += 1
+            for result in converted_results:
+                report.images_converted += 1
 
-                    # Track format changes
-                    detail_key = result.details.split(',')[0].strip() if result.details else 'processed'
-                    report.image_formats[detail_key] = report.image_formats.get(detail_key, 0) + 1
+                # Track format changes
+                detail_key = result.details.split(',')[0].strip() if result.details else 'processed'
+                report.image_formats[detail_key] = report.image_formats.get(detail_key, 0) + 1
 
-                    # Write new file
-                    new_path = Path(img_path).parent / result.new_filename
-                    with open(str(new_path), 'wb') as f:
-                        f.write(result.output_bytes)
+                # Write new file
+                new_path = Path(img_path).parent / result.new_filename
+                with open(str(new_path), 'wb') as f:
+                    f.write(result.output_bytes)
 
-                    # Remove old file if name changed
-                    if result.new_filename != Path(img_path).name:
-                        if os.path.exists(img_path):
-                            os.unlink(img_path)
+                report.image_details.append(result.details)
 
-                    # Track for reference updates
-                    old_rel = os.path.relpath(img_path, Path(opf_path).parent)
-                    processed_images[old_rel] = result.new_filename
+            if not converted_results:
+                continue
 
-                    report.image_details.append(result.details)
+            original_name = Path(img_path).name
+            if original_name not in {result.new_filename for result in converted_results}:
+                os.unlink(img_path)
+
+            old_rel = Path(img_path).relative_to(Path(opf_path).parent).as_posix()
+            if len(converted_results) > 1:
+                split_images[old_rel] = [result.new_filename for result in converted_results]
+            else:
+                processed_images[old_rel] = converted_results[0].new_filename
 
         # Step 8: Fix SVG covers (62%)
         _progress(62, "Fixing SVG covers...")
@@ -288,25 +293,33 @@ def process_epub(input_path: str, output_path: str,
             work_dir,
             {k: v for k, v in processed_images.items()}
         )
-        if rename_map:
-            update_opf(opf_path, rename_map)
+        split_image_map = build_split_image_map(split_images)
+        split_first_map = {
+            old_path: new_paths[0]
+            for old_path, new_paths in split_image_map.items()
+            if new_paths
+        }
+        all_renames = {**rename_map, **split_first_map}
+        if all_renames:
+            update_opf(opf_path, all_renames)
+            add_split_images_to_opf(opf_path, split_image_map)
             for xhtml_path in content_files['xhtml']:
                 if os.path.exists(xhtml_path):
                     update_xhtml_references(xhtml_path, rename_map)
+                    update_xhtml_split_references(xhtml_path, opf_path, split_image_map)
             for css_path in content_files['css']:
                 if os.path.exists(css_path):
-                    update_css_references(css_path, rename_map)
+                    update_css_references(css_path, all_renames)
+        ensure_cover_meta(opf_path)
 
-        # Step 11: Repair HTML + strip unnecessary attributes (70%)
-        _progress(70, "Repairing HTML...")
+        # Step 11: Apply the same targeted XHTML constraints as CrossPoint.
+        _progress(70, "Applying reader-safe image styles...")
         for xhtml_path in content_files['xhtml']:
             if os.path.exists(xhtml_path):
                 with open(xhtml_path, 'rb') as f:
                     html_bytes = f.read()
-                repaired = repair_html(html_bytes)
-                # Strip decorative attributes (data-*, aria-*, etc) for 380KB RAM device
-                repaired, stripped = strip_unnecessary_attributes(repaired)
-                report.attrs_stripped += stripped
+                repaired, fixes = apply_crosspoint_xhtml_fixes(html_bytes)
+                report.attrs_stripped += fixes
                 with open(xhtml_path, 'wb') as f:
                     f.write(repaired)
 
@@ -363,20 +376,19 @@ def process_epub(input_path: str, output_path: str,
 
         _prune_encryption_manifest(work_dir)
 
-        # Step 14: Normalize whitespace and page breaks (82%)
-        _progress(82, "Normalizing content...")
-        for xhtml_path in content_files['xhtml']:
-            if os.path.exists(xhtml_path):
-                with open(xhtml_path, 'rb') as f:
-                    html_bytes = f.read()
-                cleaned, removed = normalize_whitespace(html_bytes)
-                report.whitespace_cleaned += removed
-                cleaned = add_chapter_page_breaks(cleaned)
-                with open(xhtml_path, 'wb') as f:
-                    f.write(cleaned)
-
-        # Step 15: Text content cleanup (85%)
+        # Step 14-15: Optional legacy text cleanup.
         if options.text_cleanup:
+            _progress(82, "Normalizing content...")
+            for xhtml_path in content_files['xhtml']:
+                if os.path.exists(xhtml_path):
+                    with open(xhtml_path, 'rb') as f:
+                        html_bytes = f.read()
+                    cleaned, removed = normalize_whitespace(html_bytes)
+                    report.whitespace_cleaned += removed
+                    cleaned = add_chapter_page_breaks(cleaned)
+                    with open(xhtml_path, 'wb') as f:
+                        f.write(cleaned)
+
             _progress(85, "Cleaning text content...")
             text_opts = TextCleanOptions(normalize_quotes=options.normalize_quotes)
             aggregate_report = TextCleanReport()
@@ -412,8 +424,11 @@ def process_epub(input_path: str, output_path: str,
 
         # Step 18: Fix TOC (90%)
         _progress(90, "Checking TOC...")
-        toc_fixed, toc_msg = fix_toc(work_dir, opf_path)
-        report.toc_status = toc_msg
+        if content_files['ncx']:
+            toc_fixed, toc_msg = fix_toc(work_dir, opf_path)
+            report.toc_status = toc_msg
+        else:
+            report.toc_status = "EPUB navigation preserved"
 
         # Step 19: Clean OS artifacts (93%)
         _progress(93, "Cleaning up...")
@@ -429,17 +444,6 @@ def process_epub(input_path: str, output_path: str,
             if os.path.exists(output_path):
                 os.unlink(output_path)
             return report
-
-        # Step 20b: Text splitting pass (zip-level)
-        _progress(96, "Applying firmware text splits...")
-        try:
-            split_result = split_epub_text(output_path)
-            if split_result['file_splits'] > 0:
-                report.sections_split = (report.sections_split or 0) + split_result['file_splits']
-            if split_result['paras'] > 0:
-                report.synthetic_sections_added = (report.synthetic_sections_added or 0) + split_result['paras']
-        except Exception:
-            pass  # textsplit is best-effort
 
         # Step 21: Generate output filename
         opf_tree = etree.parse(opf_path)

@@ -87,6 +87,7 @@ process_drop_dir() {
     log "Processing: $filename"
 
     optimizer_args=(-o "$OUTPUT_DIR")
+    [ -n "$EPUB_DEVICE" ] && optimizer_args+=("--device" "$EPUB_DEVICE")
     [ -n "$EPUB_QUALITY" ] && optimizer_args+=("--quality" "$EPUB_QUALITY")
     [ -n "$EPUB_MAX_WIDTH" ] && optimizer_args+=("--max-width" "$EPUB_MAX_WIDTH")
     [ -n "$EPUB_MAX_HEIGHT" ] && optimizer_args+=("--max-height" "$EPUB_MAX_HEIGHT")
@@ -95,6 +96,9 @@ process_drop_dir() {
     [ -n "$EPUB_NO_GRAYSCALE" ] && optimizer_args+=("--no-grayscale")
     [ -n "$EPUB_NO_REMOVE_FONTS" ] && optimizer_args+=("--no-remove-fonts")
     [ -n "$EPUB_NO_REMOVE_CSS" ] && optimizer_args+=("--no-remove-css")
+    [ -n "$EPUB_EINK_QUANTIZE" ] && optimizer_args+=("--eink-quantize")
+    [ -n "$EPUB_REMOVE_FONTS" ] && optimizer_args+=("--remove-fonts")
+    [ -n "$EPUB_REMOVE_CSS" ] && optimizer_args+=("--remove-css")
     [ -n "$EPUB_LIGHT_NOVEL" ] && optimizer_args+=("--light-novel")
     [ -n "$EPUB_SPLIT_LONG_SECTIONS" ] && optimizer_args+=("--split-long-sections")
     [ -n "$EPUB_SECTION_SPLIT_WORD_THRESHOLD" ] && optimizer_args+=("--section-split-word-threshold" "$EPUB_SECTION_SPLIT_WORD_THRESHOLD")

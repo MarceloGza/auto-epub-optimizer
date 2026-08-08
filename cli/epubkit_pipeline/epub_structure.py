@@ -5,7 +5,7 @@ Handles: OPF/NCX/XHTML reference updates, SVG cover fix, TOC repair/regeneration
 
 import os
 import re
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from urllib.parse import unquote, quote
 
 from lxml import etree
@@ -70,11 +70,25 @@ def build_rename_map(epub_dir: str, processed_images: dict) -> dict:
     """
     rename_map = {}
     for old_path, new_filename in processed_images.items():
-        old_dir = str(Path(old_path).parent)
-        new_path = str(Path(old_dir) / new_filename) if old_dir != '.' else new_filename
-        if old_path != new_path:
-            rename_map[old_path] = new_path
+        normalized_old_path = old_path.replace('\\', '/')
+        old_dir = PurePosixPath(normalized_old_path).parent
+        new_path = str(old_dir / new_filename) if str(old_dir) != '.' else new_filename
+        if normalized_old_path != new_path:
+            rename_map[normalized_old_path] = new_path
     return rename_map
+
+
+def build_split_image_map(processed_images: dict[str, list[str]]) -> dict[str, list[str]]:
+    """Build EPUB-relative output paths for images converted into multiple parts."""
+    split_map = {}
+    for old_path, new_filenames in processed_images.items():
+        normalized_old_path = old_path.replace('\\', '/')
+        old_dir = PurePosixPath(normalized_old_path).parent
+        split_map[normalized_old_path] = [
+            str(old_dir / filename) if str(old_dir) != '.' else filename
+            for filename in new_filenames
+        ]
+    return split_map
 
 
 def update_opf(opf_path: str, rename_map: dict) -> None:
@@ -101,6 +115,55 @@ def update_opf(opf_path: str, rename_map: dict) -> None:
                 break
 
     tree.write(opf_path, xml_declaration=True, encoding='utf-8', pretty_print=True)
+
+
+def add_split_images_to_opf(opf_path: str, split_images: dict[str, list[str]]) -> int:
+    """Add manifest items for split image parts after each part-one rename."""
+    if not split_images:
+        return 0
+
+    tree = etree.parse(opf_path)
+    root = tree.getroot()
+    manifest = _find_element(root, 'manifest')
+    if manifest is None:
+        return 0
+
+    items = [item for item in manifest if _is_element(item)]
+    used_ids = {item.get('id', '') for item in items}
+    used_hrefs = {unquote(item.get('href', '')) for item in items}
+    added = 0
+
+    for new_paths in split_images.values():
+        if len(new_paths) < 2:
+            continue
+        first_item = next(
+            (item for item in items if unquote(item.get('href', '')) == new_paths[0]),
+            None,
+        )
+        base_id = first_item.get('id', 'split-image') if first_item is not None else 'split-image'
+        item_tag = first_item.tag if first_item is not None else f'{{{NS_OPF}}}item'
+
+        for part_number, href in enumerate(new_paths[1:], start=2):
+            if href in used_hrefs:
+                continue
+            item_id = f'{base_id}-part-{part_number}'
+            suffix = 2
+            while item_id in used_ids:
+                item_id = f'{base_id}-part-{part_number}-{suffix}'
+                suffix += 1
+
+            item = etree.SubElement(manifest, item_tag)
+            item.set('id', item_id)
+            item.set('href', quote(href, safe='/:@'))
+            item.set('media-type', 'image/jpeg')
+            used_ids.add(item_id)
+            used_hrefs.add(href)
+            items.append(item)
+            added += 1
+
+    if added:
+        tree.write(opf_path, xml_declaration=True, encoding='utf-8', pretty_print=True)
+    return added
 
 
 def update_opf_remove_fonts(opf_path: str, font_files: list[str]) -> int:
@@ -148,6 +211,56 @@ def add_image_to_opf(opf_path: str, image_href: str, image_id: str) -> None:
     item.set('media-type', _guess_media_type(image_href) or 'image/jpeg')
 
     tree.write(opf_path, xml_declaration=True, encoding='utf-8', pretty_print=True)
+
+
+def ensure_cover_meta(opf_path: str) -> bool:
+    """Ensure EPUB 2 cover metadata points to the best manifested cover image."""
+    tree = etree.parse(opf_path)
+    root = tree.getroot()
+    metadata = _find_element(root, 'metadata')
+    manifest = _find_element(root, 'manifest')
+    if metadata is None or manifest is None:
+        return False
+
+    image_items = [
+        item for item in manifest
+        if _is_element(item) and (item.get('media-type') or '').startswith('image/')
+    ]
+    cover_item = next(
+        (item for item in image_items
+         if 'cover-image' in (item.get('properties') or '').split()),
+        None,
+    )
+    if cover_item is None:
+        cover_item = next(
+            (item for item in image_items
+             if 'cover' in (item.get('id') or '').lower()
+             or 'cover' in unquote(item.get('href') or '').lower()),
+            None,
+        )
+    if cover_item is None or not cover_item.get('id'):
+        return False
+
+    cover_id = cover_item.get('id')
+    cover_meta = next(
+        (element for element in metadata
+         if _is_element(element)
+         and etree.QName(element).localname == 'meta'
+         and element.get('name') == 'cover'),
+        None,
+    )
+    if cover_meta is not None:
+        if cover_meta.get('content') == cover_id:
+            return False
+        cover_meta.set('content', cover_id)
+    else:
+        namespace = etree.QName(metadata).namespace or NS_OPF
+        cover_meta = etree.SubElement(metadata, f'{{{namespace}}}meta')
+        cover_meta.set('name', 'cover')
+        cover_meta.set('content', cover_id)
+
+    tree.write(opf_path, xml_declaration=True, encoding='utf-8', pretty_print=True)
+    return True
 
 
 def update_xhtml_references(xhtml_path: str, rename_map: dict) -> int:
@@ -202,6 +315,89 @@ def update_xhtml_references(xhtml_path: str, rename_map: dict) -> int:
     return updated
 
 
+def update_xhtml_split_references(xhtml_path: str, opf_path: str,
+                                  split_images: dict[str, list[str]]) -> int:
+    """Replace one XHTML image with all of its generated split parts."""
+    if not split_images:
+        return 0
+
+    try:
+        parser = etree.XMLParser(resolve_entities=False, no_network=True)
+        tree = etree.parse(xhtml_path, parser)
+    except (OSError, etree.XMLSyntaxError):
+        return 0
+
+    root = tree.getroot()
+    xhtml_dir = Path(xhtml_path).parent.resolve()
+    opf_dir = Path(opf_path).parent.resolve()
+    split_lookup = {
+        (opf_dir.joinpath(*PurePosixPath(old_path).parts)).resolve(): new_paths
+        for old_path, new_paths in split_images.items()
+    }
+    namespace = etree.QName(root).namespace or NS_XHTML
+    safe_containers = {'div', 'p', 'figure', 'aside', 'section'}
+    updated = 0
+
+    for image in list(root.iter()):
+        if not _is_element(image) or etree.QName(image).localname.lower() != 'img':
+            continue
+        src = image.get('src', '')
+        if not src or src.startswith(('data:', 'http:', 'https:')):
+            continue
+        decoded_src = unquote(src.split('#', 1)[0].split('?', 1)[0])
+        if not decoded_src or decoded_src.startswith('/'):
+            continue
+        source_path = xhtml_dir.joinpath(*PurePosixPath(decoded_src).parts).resolve()
+        new_paths = split_lookup.get(source_path)
+        if not new_paths:
+            continue
+
+        new_sources = []
+        for new_path in new_paths:
+            absolute_path = opf_dir.joinpath(*PurePosixPath(new_path).parts).resolve()
+            relative_path = os.path.relpath(absolute_path, xhtml_dir).replace(os.sep, '/')
+            new_sources.append(quote(relative_path, safe='/:@'))
+
+        image.set('src', new_sources[0])
+        for attr in ('width', 'height', 'class'):
+            image.attrib.pop(attr, None)
+        image.set('style', 'max-width:100%;height:auto')
+
+        insert_target = image
+        container = image.getparent()
+        while container is not None:
+            if _is_element(container) and etree.QName(container).localname.lower() in safe_containers:
+                insert_target = container
+                container.attrib.pop('class', None)
+                container.attrib.pop('style', None)
+                break
+            if _is_element(container) and etree.QName(container).localname.lower() == 'body':
+                break
+            container = container.getparent()
+
+        insert_parent = insert_target.getparent()
+        if insert_parent is not None:
+            insert_at = insert_parent.index(insert_target) + 1
+            for part_src in new_sources[1:]:
+                wrapper = etree.Element(f'{{{namespace}}}div')
+                new_image = etree.SubElement(wrapper, f'{{{namespace}}}img')
+                new_image.set('src', part_src)
+                new_image.set('alt', '')
+                new_image.set('style', 'max-width:100%;height:auto')
+                insert_parent.insert(insert_at, wrapper)
+                insert_at += 1
+        updated += 1
+
+    if updated:
+        tree.write(
+            xhtml_path,
+            xml_declaration=True,
+            encoding='utf-8',
+            doctype=tree.docinfo.doctype or None,
+        )
+    return updated
+
+
 def update_css_references(css_path: str, rename_map: dict) -> int:
     """Update url() references in a CSS file. Returns count of updates."""
     with open(css_path, 'r', encoding='utf-8', errors='ignore') as f:
@@ -248,37 +444,29 @@ def _resolve_reference(ref: str, rename_map: dict) -> str:
 
 def fix_svg_covers(epub_dir: str, opf_path: str) -> int:
     """
-    Find XHTML files that wrap cover images in SVG and replace with simple <img> tags.
+    Replace SVG-wrapped images in manifested XHTML with simple <img> tags.
     Returns count of fixed covers.
     """
     tree = etree.parse(opf_path)
     root = tree.getroot()
     fixed = 0
 
-    # Find spine items
-    spine = _find_element(root, 'spine')
     manifest = _find_element(root, 'manifest')
-    if spine is None or manifest is None:
+    if manifest is None:
         return 0
 
     opf_dir = str(Path(opf_path).parent)
+    svg_block_re = re.compile(r'<(?:\w+:)?svg\b[^>]*>.*?</(?:\w+:)?svg>', re.S | re.I)
+    image_tag_re = re.compile(r'<(?:\w+:)?image\b[^>]*/?>', re.I)
+    href_attr_re = re.compile(r'''\b(?:xlink:)?href=["']([^"']*)["']''', re.I)
+    opf_changed = False
 
-    # Build id->href map from manifest
-    id_to_href = {}
     for item in manifest:
         if not _is_element(item):
             continue
-        id_to_href[item.get('id', '')] = item.get('href', '')
-
-    # Check first few spine items for SVG cover wrappers
-    svg_block_re = re.compile(r'<(?:\w+:)?svg\b[^>]*>.*?</(?:\w+:)?svg>', re.S | re.I)
-    image_tag_re = re.compile(r'<(?:\w+:)?image\b[^>]*/?>', re.I)
-    href_attr_re = re.compile(r'\b(?:xlink:)?href="([^"]*)"')
-
-    spine_items = [s for s in spine if _is_element(s)]
-    for itemref in spine_items[:3]:
-        idref = itemref.get('idref', '')
-        href = id_to_href.get(idref, '')
+        if (item.get('media-type') or '').lower() not in ('application/xhtml+xml', 'text/html'):
+            continue
+        href = item.get('href', '')
         if not href:
             continue
 
@@ -301,8 +489,8 @@ def fix_svg_covers(epub_dir: str, opf_path: str) -> int:
             if not href_match or not href_match.group(1):
                 return block
             doc_fixed += 1
-            return ('<img src="%s" alt="Cover" '
-                    'style="max-width:100%%;max-height:100%%;display:block;margin:auto"/>'
+            return ('<div><img src="%s" alt="" '
+                    'style="max-width:100%%;height:auto"/></div>'
                     % href_match.group(1))
 
         text = svg_block_re.sub(unwrap, text)
@@ -311,6 +499,17 @@ def fix_svg_covers(epub_dir: str, opf_path: str) -> int:
             with open(xhtml_path, 'wb') as f:
                 f.write(text.encode('utf-8'))
             fixed += doc_fixed
+            properties = (item.get('properties') or '').split()
+            if 'svg' in properties:
+                properties = [prop for prop in properties if prop != 'svg']
+                if properties:
+                    item.set('properties', ' '.join(properties))
+                else:
+                    item.attrib.pop('properties', None)
+                opf_changed = True
+
+    if opf_changed:
+        tree.write(opf_path, xml_declaration=True, encoding='utf-8', pretty_print=True)
 
     return fixed
 

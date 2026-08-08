@@ -28,6 +28,13 @@ FONT_MEDIA_TYPES = {
     'application/x-font-otf', 'application/font-sfnt',
 }
 HORIZONTAL_WHITESPACE = frozenset({' ', '\t', '\u00a0'})
+CROSSPOINT_DEFENSIVE_CSS = (
+    'img,svg{max-width:100%;height:auto}'
+    'body{overflow-wrap:break-word}'
+    'table{max-width:100%;table-layout:fixed}'
+    'pre,code{white-space:pre-wrap;word-wrap:break-word}'
+    '*{box-sizing:border-box}'
+)
 
 
 def repair_html(html_bytes: bytes) -> bytes:
@@ -45,6 +52,75 @@ def repair_html(html_bytes: bytes) -> bytes:
         return html_bytes
 
     return _serialize_xhtml_document(tree, doctype)
+
+
+def apply_crosspoint_xhtml_fixes(xhtml_bytes: bytes) -> tuple[bytes, int]:
+    """Apply the targeted XHTML changes used by CrossPoint's web optimizer."""
+    try:
+        tree, doctype = _parse_xhtml_document(xhtml_bytes)
+    except Exception:
+        return _apply_crosspoint_xhtml_fallback(xhtml_bytes)
+
+    if tree is None:
+        return xhtml_bytes, 0
+
+    root = tree.getroot()
+    changed = 0
+    for element in root.iter():
+        if not isinstance(element.tag, str) or _local_name(element.tag).lower() != 'img':
+            continue
+        for attr in ('width', 'height'):
+            if attr in element.attrib:
+                del element.attrib[attr]
+                changed += 1
+
+    head = next(
+        (element for element in root.iter()
+         if isinstance(element.tag, str) and _local_name(element.tag).lower() == 'head'),
+        None,
+    )
+    has_defensive_style = any(
+        isinstance(element.tag, str)
+        and _local_name(element.tag).lower() == 'style'
+        and CROSSPOINT_DEFENSIVE_CSS in (element.text or '').replace('\n', '').replace(' ', '')
+        for element in root.iter()
+    )
+    if head is not None and not has_defensive_style:
+        namespace = _namespace_uri(root.tag) or XHTML_NS
+        style = etree.SubElement(head, f'{{{namespace}}}style')
+        style.set('type', 'text/css')
+        style.text = CROSSPOINT_DEFENSIVE_CSS
+        changed += 1
+
+    if not changed:
+        return xhtml_bytes, 0
+    return _serialize_xhtml_document(tree, doctype), changed
+
+
+def _apply_crosspoint_xhtml_fallback(xhtml_bytes: bytes) -> tuple[bytes, int]:
+    text = xhtml_bytes.decode('utf-8', 'replace')
+    changed = 0
+
+    def clean_image(match):
+        nonlocal changed
+        tag = match.group(0)
+        cleaned, count = re.subn(
+            r'''\s+(?:width|height)\s*=\s*(?:"[^"]*"|'[^']*')''',
+            '',
+            tag,
+            flags=re.I,
+        )
+        changed += count
+        return cleaned
+
+    text = re.sub(r'<(?:\w+:)?img\b[^>]*>', clean_image, text, flags=re.I)
+    if CROSSPOINT_DEFENSIVE_CSS not in text:
+        style = f'<style type="text/css">{CROSSPOINT_DEFENSIVE_CSS}</style>'
+        text, count = re.subn(r'</head\s*>', style + '</head>', text, count=1, flags=re.I)
+        changed += count
+    if not changed:
+        return xhtml_bytes, 0
+    return text.encode('utf-8'), changed
 
 
 def remove_unused_css(css_text: str, used_classes: set, used_ids: set, used_elements: set) -> tuple[str, int]:

@@ -2,7 +2,7 @@
 
 **<div align="center">Drop EPUB into folder → Automatically gets optimized → File is moved to your library</div>**<br/>
 
-Optimizes EPUB files for e-readers like the Xteink X3/X4 using a modified Python pipeline from [epubkit](https://github.com/b1rdmania/epubkit). It converts images to baseline JPEG, applies 4-level grayscale, repairs EPUB structure, strips embedded fonts, removes unused CSS, cleans metadata/text, fixes TOCs, handles SVG covers, and repackages the EPUB correctly.
+Optimizes EPUB files for e-readers like the Xteink X3/X4 using the same compatibility approach as the official CrossPoint file-transfer optimizer. It converts images to baseline grayscale JPEG, applies device-specific bounds, fixes image references and SVG wrappers, preserves book content and navigation, and repackages the EPUB correctly.
 
 Use it in three ways:
 
@@ -17,7 +17,8 @@ Use it in three ways:
 - A grayscale-optimized copy is written to a separate library, ready to serve via OPDS
 - Optional second drop folder supported for "optimize only" runs that skip the Calibre copy
 - Single-library mode also supported: leave `CALIBRE_WATCH_FOLDER` unset and only the optimized copy is produced
-- Uses the full `epubkit` cleanup pipeline, not only image conversion
+- Preserves fonts, CSS, metadata, text, and existing spine sections by default
+- Optional light-novel mode rotates or splits only oversized landscape artwork
 
 # Usage/Installation
 There are four ways to install or use this workflow:
@@ -26,7 +27,7 @@ There are four ways to install or use this workflow:
 3. [Manually via your local Browser](#browser-no-install-required)
 4. [Manually via CLI](#cli)
 
-> Note: The default settings are for the XTEINK X4's 800x480 image bounds. For another device, set `EPUB_MAX_WIDTH` and `EPUB_MAX_HEIGHT` in your config or pass `-W`/`-H` to `cli/optimize.py`.
+> The default profile is X4 (`480x800`). Set `EPUB_DEVICE=x3` or pass `--device x3` for the X3's `528x792` bounds. `EPUB_MAX_WIDTH` and `EPUB_MAX_HEIGHT` remain available as explicit overrides.
 
 ## Docker Compose
 
@@ -122,12 +123,13 @@ Edit `~/.config/epub-optimizer/.env`:
 | `WATCHER_LOG_FILE`     | Log path for the watcher service (default: `~/.local/log/epub-watcher.log`)                                                        |
 | `POLL_INTERVAL`        | Seconds between bookdrop scans (default: `5`)                                                                                      |
 | `KEEP_DAYS`            | Days to keep files in `bookdrop/processed/` before auto-deletion (default: `5`)                                                    |
-| `EPUB_QUALITY`         | Optional JPEG quality, default `70`                                                                                                |
-| `EPUB_MAX_WIDTH`       | Optional max image width, default `800`                                                                                            |
-| `EPUB_MAX_HEIGHT`      | Optional max image height, default `480`                                                                                           |
+| `EPUB_DEVICE`          | Device profile: `x4` (default, `480x800`) or `x3` (`528x792`)                                                                     |
+| `EPUB_QUALITY`         | Optional JPEG quality, default `85`                                                                                                |
+| `EPUB_MAX_WIDTH`       | Optional max image width override                                                                                                  |
+| `EPUB_MAX_HEIGHT`      | Optional max image height override                                                                                                 |
 | `EPUB_CONTRAST`        | Optional - set to `1` to enable contrast boost                                                                                     |
 | `EPUB_CONTRAST_FACTOR` | Optional contrast multiplier used when contrast boost is enabled, default `1.0`                                                     |
-| `EPUB_LIGHT_NOVEL`     | Optional - set to `1` to rotate/split landscape light-novel images                                                                 |
+| `EPUB_LIGHT_NOVEL`     | Optional - set to `1` to rotate/split oversized landscape light-novel artwork                                                      |
 | `EPUB_SPLIT_LONG_SECTIONS` | Optional - set to `1` to split oversized XHTML spine items into smaller reader sections                                         |
 | `EPUB_SECTION_SPLIT_WORD_THRESHOLD` | Optional visible-word threshold for `EPUB_SPLIT_LONG_SECTIONS`, default `2000`                                       |
 | `EPUB_FILENAME_FORMAT` | Optional output name pattern: `author-title`, `title-author`, or `title`                                                           |
@@ -214,7 +216,7 @@ Those installer scripts will copy the updated files, run `systemctl --user daemo
 
 Open `browser/index.html` directly in a browser. Everything runs locally, no files leave your machine.
 
-This browser page uses the older JavaScript-only optimizer. The automated watcher, Docker image, and Python CLI use the newer `epubkit` pipeline.
+This browser page uses a standalone JavaScript implementation. The automated watcher, Docker image, and CLI use the Python implementation.
 
 1. Drop one or more `.epub` files onto the drop zone (or click to select)
 2. Adjust settings if needed
@@ -248,19 +250,20 @@ The output filename may be normalized from the EPUB's internal metadata or title
 | Flag                   | Default        | Description                               |
 | ---------------------- | -------------- | ----------------------------------------- |
 | `-o, --output <dir>`   | `./optimized`  | Output directory                          |
-| `-q, --quality <n>`    | `70`           | JPEG quality (1-100)                      |
+| `-q, --quality <n>`    | `85`           | JPEG quality (1-100)                      |
+| `--device <x3|x4>`     | `x4`           | Device image profile                      |
 | `--no-grayscale`       | -              | Disable grayscale conversion              |
 | `--contrast`           | -              | Enable contrast boost                     |
 | `-c, --contrast-factor <n>` | `1.0`     | Contrast multiplier used with `--contrast` |
-| `--no-eink-quantize`   | -              | Disable 4-level e-ink quantization        |
-| `-W, --max-width <n>`  | `800`          | Max image width in px                     |
-| `-H, --max-height <n>` | `480`          | Max image height in px                    |
-| `--light-novel`        | -              | Rotate/split landscape light-novel images |
-| `--no-remove-fonts`    | -              | Keep embedded fonts                       |
-| `--no-remove-css`      | -              | Keep unused CSS                           |
-| `--no-generate-cover`  | -              | Do not generate missing cover art         |
-| `--no-clean-metadata`  | -              | Keep store-specific metadata              |
-| `--no-text-cleanup`    | -              | Disable text cleanup                      |
+| `--eink-quantize`      | -              | Opt in to 4-level image quantization      |
+| `-W, --max-width <n>`  | profile        | Override max image width                  |
+| `-H, --max-height <n>` | profile        | Override max image height                 |
+| `--light-novel`        | -              | Rotate/split oversized landscape artwork  |
+| `--remove-fonts`       | -              | Opt in to embedded-font removal           |
+| `--remove-css`         | -              | Opt in to unused-CSS removal              |
+| `--generate-cover`     | -              | Opt in to generated missing cover art     |
+| `--clean-metadata`     | -              | Opt in to store-metadata cleanup           |
+| `--text-cleanup`       | -              | Opt in to text normalization              |
 | `--split-long-sections` | -             | Split oversized XHTML spine items into smaller reader sections |
 | `--section-split-word-threshold <words>` | `2000` | Visible-word threshold used with `--split-long-sections` |
 | `--filename-format`    | `author-title` | Output filename pattern from metadata     |
@@ -270,16 +273,16 @@ The output filename may be normalized from the EPUB's internal metadata or title
 
 ### Pipeline
 
-The Python CLI uses the copied `epubkit` pipeline in `cli/epubkit_pipeline/`. It checks for DRM, extracts the EPUB safely, converts images to X4-friendly JPEGs, fixes SVG covers, optionally generates a missing cover, repairs HTML, strips unnecessary attributes, removes unused CSS/fonts, normalizes text and whitespace, optionally splits very long XHTML spine items into smaller reader sections, cleans store metadata, repairs or generates the TOC, removes OS artifacts, and repackages with the EPUB `mimetype` entry first.
+The Python CLI checks for DRM, extracts the EPUB safely, converts images to baseline grayscale JPEGs for the selected device, updates image references and media types, unwraps SVG images, removes stale image dimensions, injects CrossPoint's defensive image CSS, syncs an existing NCX identifier, and repackages with the EPUB `mimetype` entry first. Fonts, CSS, metadata, text, and spine sections are preserved unless an explicit cleanup option is passed.
 
 ### Examples
 
 ```bash
-# Standard epubkit optimization
+# Standard X4 optimization
 python3 cli/optimize.py book.epub
 
-# Custom output and display size
-python3 cli/optimize.py -q 80 -W 600 -H 900 --output ./out book.epub
+# X3 optimization with light-novel handling for large landscape artwork
+python3 cli/optimize.py --device x3 --light-novel --output ./out book.epub
 
 # Keep the old filename suffix convention
 python3 cli/optimize.py --suffix=-optimized book.epub
@@ -287,9 +290,6 @@ python3 cli/optimize.py --suffix=-optimized book.epub
 # Name outputs as "Title - Author"
 python3 cli/optimize.py --filename-format=title-author book.epub
 
-# Faster cleanup that keeps CSS and embedded fonts
-python3 cli/optimize.py --no-remove-css --no-remove-fonts book.epub
-
-# Split very long chapters into smaller reader sections for CrossInk
-python3 cli/optimize.py --split-long-sections book.epub
+# Explicit custom image bounds
+python3 cli/optimize.py -W 600 -H 900 book.epub
 ```

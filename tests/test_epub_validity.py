@@ -16,13 +16,18 @@ sys.path.insert(0, str(PIPELINE_DIR))
 
 from epub_packager import is_valid_epub  # noqa: E402
 from epub_processor import ProcessingOptions, process_epub  # noqa: E402
-from epub_structure import add_image_to_opf, fix_toc, update_opf  # noqa: E402
+from epub_structure import add_image_to_opf, build_rename_map, fix_toc, update_opf  # noqa: E402
 from html_cleaner import repair_html  # noqa: E402
 from textsplit import split_epub_text, visible_text  # noqa: E402
 
 
 class EpubValidityTests(unittest.TestCase):
     maxDiff = None
+
+    def test_image_rename_map_always_uses_epub_paths(self):
+        rename_map = build_rename_map('', {r'Images\09.gif': '09.jpg'})
+
+        self.assertEqual(rename_map, {'Images/09.gif': 'Images/09.jpg'})
 
     def test_epub3_nav_semantics_survive_processing(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -45,6 +50,7 @@ class EpubValidityTests(unittest.TestCase):
 
             self.assertTrue(report.success, report.error)
             with zipfile.ZipFile(output_path) as zf:
+                self.assertNotIn('OEBPS/toc.ncx', zf.namelist())
                 nav_tree = etree.fromstring(zf.read('OEBPS/nav.xhtml'))
                 ns = {
                     'xhtml': 'http://www.w3.org/1999/xhtml',
@@ -87,6 +93,7 @@ class EpubValidityTests(unittest.TestCase):
                 str(input_path),
                 str(output_path),
                 ProcessingOptions(
+                    remove_fonts=True,
                     remove_unused_css=False,
                     generate_missing_cover=False,
                     clean_metadata=False,
@@ -304,6 +311,55 @@ class EpubValidityTests(unittest.TestCase):
                 info = zf.getinfo('mimetype')
                 self.assertEqual(info.compress_type, zipfile.ZIP_STORED)
                 self.assertEqual(zf.read('mimetype').decode('utf-8'), 'application/epub+zip')
+
+    def test_default_pipeline_preserves_large_spine_sections(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            input_path = root / 'input.epub'
+            output_path = root / 'output.epub'
+            chapter = self._chapter_xhtml('Large Chapter').replace('Body text.', 'word ' * 2500)
+            self._write_epub(
+                input_path,
+                {
+                    'mimetype': ('application/epub+zip', zipfile.ZIP_STORED),
+                    'META-INF/container.xml': (self._container_xml('OEBPS/content.opf'), zipfile.ZIP_DEFLATED),
+                    'OEBPS/content.opf': ('''<?xml version="1.0" encoding="utf-8"?>
+<package xmlns="http://www.idpf.org/2007/opf" unique-identifier="BookId" version="2.0">
+  <metadata xmlns:dc="http://purl.org/dc/elements/1.1/">
+    <dc:identifier id="BookId">large-section-fixture</dc:identifier>
+    <dc:title>Fixture</dc:title>
+  </metadata>
+  <manifest>
+    <item id="chapter" href="chapter.xhtml" media-type="application/xhtml+xml"/>
+  </manifest>
+  <spine><itemref idref="chapter"/></spine>
+</package>''', zipfile.ZIP_DEFLATED),
+                    'OEBPS/chapter.xhtml': (chapter, zipfile.ZIP_DEFLATED),
+                },
+            )
+
+            report = process_epub(
+                str(input_path),
+                str(output_path),
+                ProcessingOptions(
+                    remove_fonts=False,
+                    remove_unused_css=False,
+                    generate_missing_cover=False,
+                    clean_metadata=False,
+                    text_cleanup=False,
+                ),
+            )
+
+            self.assertTrue(report.success, report.error)
+            with zipfile.ZipFile(output_path) as zf:
+                content_files = [
+                    name for name in zf.namelist()
+                    if name.lower().endswith(('.xhtml', '.html', '.htm'))
+                ]
+                opf = etree.fromstring(zf.read('OEBPS/content.opf'))
+            spine = opf.find('.//{http://www.idpf.org/2007/opf}spine')
+            self.assertEqual(content_files, ['OEBPS/chapter.xhtml'])
+            self.assertEqual(len(spine), 1)
 
     def test_textsplit_splits_oversized_paragraphs(self):
         with tempfile.TemporaryDirectory() as tmp:

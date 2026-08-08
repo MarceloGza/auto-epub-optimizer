@@ -16,9 +16,9 @@ from dataclasses import dataclass
 from PIL import Image, ImageEnhance, ImageOps, ImageDraw, ImageFont
 
 
-# X4 screen dimensions (800x480 landscape panel)
-X4_WIDTH = 800
-X4_HEIGHT = 480
+# Device profiles use portrait orientation (short edge x long edge).
+X4_WIDTH = 480
+X4_HEIGHT = 800
 
 # X3 screen dimensions (528x792 portrait panel)
 X3_WIDTH = 528
@@ -47,7 +47,7 @@ class ImageOptions:
     quality: int = 85
     max_width: int = X4_WIDTH
     max_height: int = X4_HEIGHT
-    eink_quantize: bool = True  # Quantize to 4 gray levels (SSD1677)
+    eink_quantize: bool = False
     light_novel_mode: bool = False
     light_novel_rotate_left: bool = True
 
@@ -135,19 +135,22 @@ def _handle_transparency(img: Image.Image) -> Image.Image:
     return img
 
 
-def _handle_light_novel(img: Image.Image, rotate_left: bool) -> list[Image.Image]:
+def _handle_light_novel(img: Image.Image, rotate_left: bool,
+                        max_width: int, max_height: int) -> list[Image.Image]:
     """
-    Light Novel mode: if image is landscape (wider than tall),
-    rotate and optionally split for vertical e-reader viewing.
+    Rotate or split oversized landscape artwork for portrait viewing.
+    Small banners and section ornaments are intentionally left alone.
     """
     width, height = img.size
 
-    if width <= height:
+    if width <= height or (width <= max_width and height <= max_height):
         return [img]
 
     aspect = width / height
 
     if aspect > 1.8:
+        if width < max_height:
+            return [img]
         # Double-page spread — split into two portrait pages
         mid = width // 2
         right_half = img.crop((mid, 0, width, height))
@@ -170,7 +173,6 @@ def process_image(image_bytes: bytes, filename: str, options: ImageOptions = Non
     original_size = len(image_bytes)
     original_ext = Path(filename).suffix.lower()
     stem = Path(filename).stem
-    original_is_safe_jpeg = original_ext in {'.jpg', '.jpeg'} and not is_progressive_jpeg(image_bytes)
 
     try:
         img = Image.open(io.BytesIO(image_bytes))
@@ -205,14 +207,18 @@ def process_image(image_bytes: bytes, filename: str, options: ImageOptions = Non
 
     # Light Novel mode — handle landscape images
     if options.light_novel_mode:
-        images = _handle_light_novel(img, options.light_novel_rotate_left)
+        images = _handle_light_novel(
+            img,
+            options.light_novel_rotate_left,
+            options.max_width,
+            options.max_height,
+        )
     else:
         images = [img]
 
     results = []
     for i, current_img in enumerate(images):
         details_parts = []
-        resized_for_device = False
 
         # Track format conversion
         if original_ext != '.jpg' and original_ext != '.jpeg':
@@ -227,7 +233,6 @@ def process_image(image_bytes: bytes, filename: str, options: ImageOptions = Non
             clamped_w, clamped_h = current_img.size
             details_parts.append(f"clamped {orig_w}x{orig_h}→{clamped_w}x{clamped_h}")
             orig_w, orig_h = clamped_w, clamped_h
-            resized_for_device = True
 
         # Resize to fit X4 screen
         if orig_w > options.max_width or orig_h > options.max_height:
@@ -235,7 +240,6 @@ def process_image(image_bytes: bytes, filename: str, options: ImageOptions = Non
                                   Image.Resampling.LANCZOS)
             new_w, new_h = current_img.size
             details_parts.append(f"resized {orig_w}x{orig_h}→{new_w}x{new_h}")
-            resized_for_device = True
 
         # Convert to grayscale
         if options.grayscale:
@@ -269,38 +273,7 @@ def process_image(image_bytes: bytes, filename: str, options: ImageOptions = Non
             details_parts.append(f"contrast {options.contrast_factor}x")
 
         # Save as baseline JPEG
-        chosen_quality = options.quality
-        output_bytes = _encode_jpeg_bytes(current_img, chosen_quality, options.grayscale)
-
-        # If a safe source JPEG had to be resized, try lower qualities before
-        # accepting a result that's larger than the original.
-        if original_is_safe_jpeg and resized_for_device and len(output_bytes) > original_size:
-            best_quality = chosen_quality
-            best_output = output_bytes
-            for trial_quality in range(max(40, chosen_quality - 5), 34, -5):
-                trial_bytes = _encode_jpeg_bytes(current_img, trial_quality, options.grayscale)
-                if len(trial_bytes) < len(best_output):
-                    best_quality = trial_quality
-                    best_output = trial_bytes
-                if len(trial_bytes) <= original_size:
-                    break
-            if best_quality != chosen_quality:
-                details_parts.append(f"quality {chosen_quality}→{best_quality}")
-                chosen_quality = best_quality
-                output_bytes = best_output
-
-        # If the original image is already a non-progressive JPEG and did not need
-        # resizing for device constraints, keep it when re-encoding makes it bigger.
-        if len(images) == 1 and original_is_safe_jpeg and not resized_for_device and len(output_bytes) > original_size:
-            results.append(ImageResult(
-                output_bytes=image_bytes,
-                new_filename=filename,
-                original_size=original_size,
-                new_size=original_size,
-                was_converted=False,
-                details="kept original JPEG (optimized version was larger)"
-            ))
-            continue
+        output_bytes = _encode_jpeg_bytes(current_img, options.quality, options.grayscale)
 
         # Build filename
         if len(images) > 1:

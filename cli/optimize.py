@@ -14,11 +14,13 @@ PIPELINE_DIR = Path(__file__).resolve().parent / "epubkit_pipeline"
 sys.path.insert(0, str(PIPELINE_DIR))
 
 from epub_processor import ProcessingOptions, process_epub  # noqa: E402
+from image_processor import DEVICE_PROFILES  # noqa: E402
 
 
 def main() -> int:
     parser = build_parser()
     args = parser.parse_args()
+    apply_device_defaults(args)
 
     inputs = resolve_inputs(args.inputs)
     if not inputs:
@@ -104,7 +106,8 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("inputs", nargs="+", help="EPUB file(s) or directories")
     parser.add_argument("-o", "--output", default="./optimized", help="output directory")
-    parser.add_argument("-q", "--quality", type=bounded_int(1, 100), default=70, help="JPEG quality 1-100")
+    parser.add_argument("-q", "--quality", type=bounded_int(1, 100), default=85, help="JPEG quality 1-100")
+    parser.add_argument("--device", choices=("x3", "x4"), default="x4", help="target device profile")
     parser.add_argument("--no-grayscale", dest="grayscale", action="store_false", help="disable grayscale conversion")
     parser.add_argument("--contrast", dest="contrast_boost", action="store_true", help="enable contrast boost")
     parser.add_argument(
@@ -115,9 +118,10 @@ def build_parser() -> argparse.ArgumentParser:
         default=1.0,
         help="contrast multiplier used with --contrast, e.g. 1.2 or 1.5",
     )
-    parser.add_argument("--no-eink-quantize", dest="eink_quantize", action="store_false", help="disable 4-level e-ink quantization")
-    parser.add_argument("-W", "--max-width", type=int, default=800, help="maximum image width in px")
-    parser.add_argument("-H", "--max-height", type=int, default=480, help="maximum image height in px")
+    parser.add_argument("--eink-quantize", dest="eink_quantize", action="store_true", help="quantize images to four gray levels")
+    parser.add_argument("--no-eink-quantize", dest="eink_quantize", action="store_false", help=argparse.SUPPRESS)
+    parser.add_argument("-W", "--max-width", type=int, default=None, help="override maximum image width in px")
+    parser.add_argument("-H", "--max-height", type=int, default=None, help="override maximum image height in px")
     parser.add_argument(
         "--split",
         choices=("none", "h-split", "v-split"),
@@ -126,11 +130,16 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--light-novel", action="store_true", help="rotate/split landscape light-novel images")
     parser.add_argument("--rotate-right", action="store_true", help="rotate light-novel images right instead of left")
-    parser.add_argument("--no-remove-fonts", dest="remove_fonts", action="store_false", help="keep embedded fonts")
-    parser.add_argument("--no-remove-css", dest="remove_css", action="store_false", help="keep unused CSS")
-    parser.add_argument("--no-generate-cover", dest="generate_cover", action="store_false", help="do not generate a missing cover")
-    parser.add_argument("--no-clean-metadata", dest="clean_metadata", action="store_false", help="keep store-specific metadata")
-    parser.add_argument("--no-text-cleanup", dest="text_cleanup", action="store_false", help="disable text cleanup")
+    parser.add_argument("--remove-fonts", dest="remove_fonts", action="store_true", help="remove embedded fonts")
+    parser.add_argument("--no-remove-fonts", dest="remove_fonts", action="store_false", help=argparse.SUPPRESS)
+    parser.add_argument("--remove-css", dest="remove_css", action="store_true", help="remove unused CSS rules")
+    parser.add_argument("--no-remove-css", dest="remove_css", action="store_false", help=argparse.SUPPRESS)
+    parser.add_argument("--generate-cover", dest="generate_cover", action="store_true", help="generate a missing cover")
+    parser.add_argument("--no-generate-cover", dest="generate_cover", action="store_false", help=argparse.SUPPRESS)
+    parser.add_argument("--clean-metadata", dest="clean_metadata", action="store_true", help="strip store-specific metadata")
+    parser.add_argument("--no-clean-metadata", dest="clean_metadata", action="store_false", help=argparse.SUPPRESS)
+    parser.add_argument("--text-cleanup", dest="text_cleanup", action="store_true", help="normalize text content")
+    parser.add_argument("--no-text-cleanup", dest="text_cleanup", action="store_false", help=argparse.SUPPRESS)
     parser.add_argument("--keep-quotes", dest="normalize_quotes", action="store_false", help="do not normalize smart quotes")
     parser.add_argument(
         "--split-long-sections",
@@ -160,15 +169,23 @@ def build_parser() -> argparse.ArgumentParser:
     parser.set_defaults(
         grayscale=True,
         contrast_boost=False,
-        eink_quantize=True,
-        remove_fonts=True,
-        remove_css=True,
-        generate_cover=True,
-        clean_metadata=True,
-        text_cleanup=True,
+        eink_quantize=False,
+        remove_fonts=False,
+        remove_css=False,
+        generate_cover=False,
+        clean_metadata=False,
+        text_cleanup=False,
         normalize_quotes=True,
     )
     return parser
+
+
+def apply_device_defaults(args: argparse.Namespace) -> None:
+    width, height = DEVICE_PROFILES[args.device]
+    if args.max_width is None:
+        args.max_width = width
+    if args.max_height is None:
+        args.max_height = height
 
 
 def build_options(args: argparse.Namespace) -> ProcessingOptions:
