@@ -42,7 +42,8 @@ SOURCE_RETENTION=delete
 EOF
 
 export EPUB_OPTIMIZER_ENV="$tmp/optimizer.env"
-bash "$repo/scripts/epub-import-hook.sh" "$original_dir/fixture.epub"
+Readarr_EventType=Test bash "$repo/scripts/bookshelf-custom-script.sh"
+Readarr_EventType=Download Readarr_AddedBookPaths="$original_dir/fixture.epub" bash "$repo/scripts/bookshelf-custom-script.sh"
 if timeout 3 bash "$repo/scripts/epub-optimizer.sh"; then
   echo 'optimizer unexpectedly exited' >&2
   exit 1
