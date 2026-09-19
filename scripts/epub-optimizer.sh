@@ -110,10 +110,22 @@ process_drop_dir() {
     exit_code=$?
 
     if [ $exit_code -eq 0 ]; then
-      mv "$staging" "$processed_dir/$filename"
-      log "Done: $filename → $OUTPUT_DIR"
-      log "Pruning epubs older than ${KEEP_DAYS} days in $processed_dir..."
-      find "$processed_dir" -name "*.epub" -mtime +${KEEP_DAYS} -delete
+      case "$SOURCE_RETENTION" in
+        processed)
+          mv "$staging" "$processed_dir/$filename"
+          log "Done: $filename → $OUTPUT_DIR"
+          log "Pruning epubs older than ${KEEP_DAYS} days in $processed_dir..."
+          find "$processed_dir" -name "*.epub" -mtime +${KEEP_DAYS} -delete
+          ;;
+        delete)
+          rm -f "$staging"
+          log "Done: $filename → $OUTPUT_DIR (temporary inbox copy removed)"
+          ;;
+        *)
+          log "ERROR: invalid SOURCE_RETENTION=$SOURCE_RETENTION; retaining $staging"
+          mv "$staging" "$failed_dir/$filename"
+          ;;
+      esac
     else
       mv "$staging" "$failed_dir/$filename"
       log "ERROR (exit $exit_code): $filename moved to $failed_dir"
