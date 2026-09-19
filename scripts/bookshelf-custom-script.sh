@@ -4,6 +4,9 @@
 set -euo pipefail
 
 script_dir=$(cd "$(dirname "$0")" && pwd)
+# Bookshelf runs custom scripts without the optimizer container's environment.
+# Prefer the co-located deployment config, while retaining an explicit override.
+export EPUB_OPTIMIZER_ENV="${EPUB_OPTIMIZER_ENV:-$script_dir/optimizer.env}"
 
 event_type=${Readarr_EventType:-}
 case "$event_type" in
