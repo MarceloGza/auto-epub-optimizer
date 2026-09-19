@@ -33,4 +33,7 @@ OPTIMIZER_LOG_FILE="${OPTIMIZER_LOG_FILE:-$HOME/.local/log/epub-optimizer.log}"
 WATCHER_LOG_FILE="${WATCHER_LOG_FILE:-$HOME/.local/log/epub-watcher.log}"
 POLL_INTERVAL="${POLL_INTERVAL:-5}"
 KEEP_DAYS="${KEEP_DAYS:-5}"
+# processed keeps a source copy for diagnostics; delete removes the temporary
+# optimizer-inbox copy after a successful optimization.
+SOURCE_RETENTION="${SOURCE_RETENTION:-processed}"
 EPUB_FILENAME_FORMAT="${EPUB_FILENAME_FORMAT:-}"
