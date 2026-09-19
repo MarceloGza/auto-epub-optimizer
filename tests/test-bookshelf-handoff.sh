@@ -58,4 +58,19 @@ test ! -e "$inbox/fixture.epub"
 test ! -e "$inbox/processing/fixture.epub"
 test ! -e "$inbox/processed/fixture.epub"
 test -f "$original_dir/fixture.epub"
-echo 'PASS: original retained; one optimized Calibre output created; no retained staging copy'
+
+# A deployed Bookshelf custom-script directory carries its own optimizer.env.
+# It must use that sidecar configuration even when Bookshelf has no global
+# EPUB_OPTIMIZER_ENV configured.
+sidecar_dir="$tmp/deployed-custom-scripts"
+sidecar_inbox="$tmp/sidecar-inbox"
+mkdir -p "$sidecar_dir" "$sidecar_inbox"
+cp "$repo/scripts/bookshelf-custom-script.sh" "$repo/scripts/epub-import-hook.sh" "$repo/scripts/load-env.sh" "$sidecar_dir/"
+cat > "$sidecar_dir/optimizer.env" <<EOF
+BOOKDROP_DIR=$sidecar_inbox
+EOF
+unset EPUB_OPTIMIZER_ENV
+Readarr_EventType=Download Readarr_AddedBookPaths="$original_dir/fixture.epub" bash "$sidecar_dir/bookshelf-custom-script.sh"
+test -f "$sidecar_inbox/fixture.epub"
+
+echo 'PASS: original retained; one optimized Calibre output created; no retained staging copy; sidecar config honored'
