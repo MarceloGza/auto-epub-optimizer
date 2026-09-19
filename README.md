@@ -16,7 +16,7 @@ Use it in three ways:
 - The original is copied to your Calibre watch folder and handled from there as normal
 - A grayscale-optimized copy is written to a separate library, ready to serve via OPDS
 - Optional second drop folder supported for "optimize only" runs that skip the Calibre copy
-- A non-destructive Bookshelf handoff: `epub-import-hook.sh` copies the canonical original to the optimizer inbox, while `SOURCE_RETENTION=delete` removes the temporary copy after a successful optimization
+- A non-destructive Bookshelf handoff: configure Bookshelf Custom Script to run `bookshelf-custom-script.sh`; it copies the canonical original to the optimizer inbox via `epub-import-hook.sh`, while `SOURCE_RETENTION=delete` removes the temporary copy after a successful optimization
 - Single-library mode also supported: leave `CALIBRE_WATCH_FOLDER` unset and only the optimized copy is produced
 - Preserves fonts, CSS, metadata, text, and existing spine sections by default
 - Optional light-novel mode rotates or splits only oversized landscape artwork
