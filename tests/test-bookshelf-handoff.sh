@@ -73,4 +73,14 @@ unset EPUB_OPTIMIZER_ENV
 Readarr_EventType=Download Readarr_AddedBookPaths="$original_dir/fixture.epub" bash "$sidecar_dir/bookshelf-custom-script.sh"
 test -f "$sidecar_inbox/fixture.epub"
 
-echo 'PASS: original retained; one optimized Calibre output created; no retained staging copy; sidecar config honored'
+# BookshelfNG currently enumerates StringDictionary keys in lower case on
+# Linux. The handoff must still accept the documented Readarr variables.
+lowercase_inbox="$tmp/lowercase-inbox"
+mkdir -p "$lowercase_inbox"
+cat > "$sidecar_dir/optimizer.env" <<EOF
+BOOKDROP_DIR=$lowercase_inbox
+EOF
+readarr_eventtype=Download readarr_addedbookpaths="$original_dir/fixture.epub" bash "$sidecar_dir/bookshelf-custom-script.sh"
+test -f "$lowercase_inbox/fixture.epub"
+
+echo 'PASS: original retained; one optimized Calibre output created; no retained staging copy; sidecar config honored; lowercase Bookshelf event variables supported'
