@@ -8,7 +8,10 @@ script_dir=$(cd "$(dirname "$0")" && pwd)
 # Prefer the co-located deployment config, while retaining an explicit override.
 export EPUB_OPTIMIZER_ENV="${EPUB_OPTIMIZER_ENV:-$script_dir/optimizer.env}"
 
-event_type=${Readarr_EventType:-}
+# BookshelfNG constructs callback variables with StringDictionary. Its Linux
+# enumeration lowercases the keys, while other Readarr-compatible producers
+# preserve the documented casing. Support both forms at this boundary.
+event_type=${Readarr_EventType:-${readarr_eventtype:-}}
 case "$event_type" in
   Test)
     exit 0
@@ -22,7 +25,7 @@ case "$event_type" in
     ;;
 esac
 
-added_paths=${Readarr_AddedBookPaths:-}
+added_paths=${Readarr_AddedBookPaths:-${readarr_addedbookpaths:-}}
 if [ -z "$added_paths" ]; then
   exit 0
 fi
