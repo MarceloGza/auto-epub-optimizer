@@ -21,7 +21,7 @@ Use it in three ways:
 - Preserves fonts, CSS, metadata, text, and existing spine sections by default
 - Optional light-novel mode shows two detailed halves followed by a rotated full overview for ordinary oversized landscape artwork; very wide spreads remain two halves.
 - Grayscale JPEGs use a single channel; publisher text/table formatting is preserved instead of globally overridden.
-- Optional `--unicode-symbols` / `EPUB_UNICODE_SYMBOLS=1` converts exact reviewed inline glyph-image hashes to Unicode before image processing. It requires a symbol-capable reader font; the default is off. Unknown images, remote/path-escaping sources and standalone ornaments remain images. Currently reviewed assets cover filled hearts, eighth notes, outline stars and distinct long-dash lengths from the retained NGNL edition. No OCR or filename guessing is used.
+- Optional `--unicode-symbols` / `EPUB_UNICODE_SYMBOLS=1` converts exact reviewed inline glyph-image hashes to Unicode before image processing. It requires a symbol-capable reader font; the default is off. Unknown images, remote/path-escaping sources and standalone ornaments remain images. Currently reviewed assets cover filled/outline hearts and stars, eighth/beamed notes, and distinct nominal long-dash runs across the retained NGNL Vols. 1–12 and Practical War Game. Text, ornaments and ambiguous line-length assets remain images. No OCR or filename guessing is used.
 
 ### Symbol-extended reader fonts (host tool)
 
