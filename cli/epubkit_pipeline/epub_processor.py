@@ -35,6 +35,7 @@ from epub_structure import (
     ensure_cover_meta, fix_svg_covers, fix_toc, find_content_files, add_image_to_opf
 )
 from section_splitter import split_long_spine_sections
+from inline_symbols import replace_verified_symbols
 
 
 @dataclass
@@ -55,6 +56,7 @@ class ProcessingOptions:
     generate_missing_cover: bool = False
     clean_metadata: bool = False
     text_cleanup: bool = False
+    unicode_symbols: bool = False
     normalize_quotes: bool = True
     split_long_sections: bool = False
     section_split_word_threshold: int = 2000
@@ -86,6 +88,8 @@ class ProcessingReport:
     text_cleanup_summary: str = ''
     sections_split: int = 0
     synthetic_sections_added: int = 0
+    unicode_symbols_replaced: int = 0
+    unicode_symbol_details: list = field(default_factory=list)
     section_links_rewritten: int = 0
     os_artifacts_removed: int = 0
     cover_generated: bool = False
@@ -99,6 +103,9 @@ class ProcessingReport:
         if self.images_converted > 0:
             fmt_parts = [f"{v} {k}" for k, v in self.image_formats.items()]
             parts.append(f"Converted {self.images_converted}/{self.images_total} images ({', '.join(fmt_parts)})")
+
+        if self.unicode_symbols_replaced:
+            parts.append(f"Replaced {self.unicode_symbols_replaced} verified inline symbol images with Unicode")
 
         if self.fonts_removed > 0:
             parts.append(f"Removed {self.fonts_removed} embedded fonts")
@@ -195,6 +202,11 @@ def process_epub(input_path: str, output_path: str,
 
         # Step 6: Find all content files
         content_files = find_content_files(work_dir, opf_path)
+
+        # Match original bytes before image conversion changes their fingerprints.
+        if options.unicode_symbols:
+            report.unicode_symbol_details = replace_verified_symbols(work_dir, content_files['xhtml'])
+            report.unicode_symbols_replaced = len(report.unicode_symbol_details)
 
         # Step 7: Process images (20-60%)
         _progress(15, "Processing images...")

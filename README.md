@@ -21,6 +21,17 @@ Use it in three ways:
 - Preserves fonts, CSS, metadata, text, and existing spine sections by default
 - Optional light-novel mode shows two detailed halves followed by a rotated full overview for ordinary oversized landscape artwork; very wide spreads remain two halves.
 - Grayscale JPEGs use a single channel; publisher text/table formatting is preserved instead of globally overridden.
+- Optional `--unicode-symbols` / `EPUB_UNICODE_SYMBOLS=1` converts exact reviewed inline glyph-image hashes to Unicode before image processing. It requires a symbol-capable reader font; the default is off. Unknown images, remote/path-escaping sources and standalone ornaments remain images. Currently reviewed assets cover filled hearts, eighth notes, outline stars and distinct long-dash lengths from the retained NGNL edition. No OCR or filename guessing is used.
+
+### Symbol-extended reader fonts (host tool)
+
+`cli/epubkit_pipeline/cpfont_tools.py` adds missing glyphs from existing CrossPoint v4, uncompressed 2-bit `.cpfont` supplements without rerasterizing the primary font. Every existing glyph's pixels/advance/bearings and each style's line metrics, kerning and ligatures win unchanged. A regular supplemental symbol also fills missing bold/italic symbols; it never replaces existing bold/italic letters.
+
+```bash
+python3 cli/epubkit_pipeline/cpfont_tools.py Primary_16.cpfont SerifSupplement_16.cpfont SymbolsSupplement_16.cpfont --output SeparateFamily_16.cpfont
+```
+
+Use the native CrossPoint font converter to rasterize licensed supplemental fonts at the **same point size** first. Repeat for each installed size, keep original font files, retain all source licenses/provenance, and install the new family under a separate name. This tool rejects unsupported versions, malformed section bounds and overwriting an existing output. It does not install/select fonts, infer their size, promise universal Unicode coverage, or modify firmware. The standalone browser optimizer does not implement Unicode symbol conversion.
 
 # Usage/Installation
 There are four ways to install or use this workflow:
