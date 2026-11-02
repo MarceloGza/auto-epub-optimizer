@@ -140,6 +140,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--clean-metadata", dest="clean_metadata", action="store_true", help="strip store-specific metadata")
     parser.add_argument("--no-clean-metadata", dest="clean_metadata", action="store_false", help=argparse.SUPPRESS)
     parser.add_argument("--text-cleanup", dest="text_cleanup", action="store_true", help="normalize text content")
+    parser.add_argument("--unicode-symbols", action="store_true", help="replace exact reviewed inline symbol images; requires a symbol-capable reader font")
     parser.add_argument("--no-text-cleanup", dest="text_cleanup", action="store_false", help=argparse.SUPPRESS)
     parser.add_argument("--keep-quotes", dest="normalize_quotes", action="store_false", help="do not normalize smart quotes")
     parser.add_argument(
@@ -206,6 +207,7 @@ def build_options(args: argparse.Namespace) -> ProcessingOptions:
         generate_missing_cover=args.generate_cover,
         clean_metadata=args.clean_metadata,
         text_cleanup=args.text_cleanup,
+        unicode_symbols=args.unicode_symbols,
         normalize_quotes=args.normalize_quotes,
         split_long_sections=args.split_long_sections,
         section_split_word_threshold=args.section_split_word_threshold,

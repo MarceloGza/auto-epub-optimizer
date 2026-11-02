@@ -101,6 +101,7 @@ process_drop_dir() {
     [ -n "$EPUB_REMOVE_FONTS" ] && optimizer_args+=("--remove-fonts")
     [ -n "$EPUB_REMOVE_CSS" ] && optimizer_args+=("--remove-css")
     [ -n "$EPUB_LIGHT_NOVEL" ] && optimizer_args+=("--light-novel")
+    [ "${EPUB_UNICODE_SYMBOLS:-0}" = "1" ] && optimizer_args+=("--unicode-symbols")
     [ -n "$EPUB_SPLIT_LONG_SECTIONS" ] && optimizer_args+=("--split-long-sections")
     [ -n "$EPUB_SECTION_SPLIT_WORD_THRESHOLD" ] && optimizer_args+=("--section-split-word-threshold" "$EPUB_SECTION_SPLIT_WORD_THRESHOLD")
     [ -n "$EPUB_FILENAME_FORMAT" ] && optimizer_args+=("--filename-format" "$EPUB_FILENAME_FORMAT")
