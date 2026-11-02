@@ -28,13 +28,8 @@ FONT_MEDIA_TYPES = {
     'application/x-font-otf', 'application/font-sfnt',
 }
 HORIZONTAL_WHITESPACE = frozenset({' ', '\t', '\u00a0'})
-CROSSPOINT_DEFENSIVE_CSS = (
-    'img,svg{max-width:100%;height:auto}'
-    'body{overflow-wrap:break-word}'
-    'table{max-width:100%;table-layout:fixed}'
-    'pre,code{white-space:pre-wrap;word-wrap:break-word}'
-    '*{box-sizing:border-box}'
-)
+# Keep compatibility changes scoped to images; preserve publisher text/table layout.
+CROSSPOINT_DEFENSIVE_CSS = 'img,svg{max-width:100%;height:auto}'
 
 
 def repair_html(html_bytes: bytes) -> bytes:

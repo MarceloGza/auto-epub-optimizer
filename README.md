@@ -19,7 +19,8 @@ Use it in three ways:
 - A non-destructive Bookshelf handoff: configure Bookshelf Custom Script to run `bookshelf-custom-script.sh`; it copies the canonical original to the optimizer inbox via `epub-import-hook.sh`, while `SOURCE_RETENTION=delete` removes the temporary copy after a successful optimization
 - Single-library mode also supported: leave `CALIBRE_WATCH_FOLDER` unset and only the optimized copy is produced
 - Preserves fonts, CSS, metadata, text, and existing spine sections by default
-- Optional light-novel mode rotates or splits only oversized landscape artwork
+- Optional light-novel mode shows two detailed halves followed by a rotated full overview for ordinary oversized landscape artwork; very wide spreads remain two halves.
+- Grayscale JPEGs use a single channel; publisher text/table formatting is preserved instead of globally overridden.
 
 # Usage/Installation
 There are four ways to install or use this workflow:
@@ -218,7 +219,7 @@ Those installer scripts will copy the updated files, run `systemctl --user daemo
 
 Open `browser/index.html` directly in a browser. Everything runs locally, no files leave your machine.
 
-This browser page uses a standalone JavaScript implementation. The automated watcher, Docker image, and CLI use the Python implementation.
+This browser page uses a standalone JavaScript implementation. The automated watcher, Docker image, and CLI use the Python implementation. Detail-halves plus rotated overview, single-channel JPEG encoding, and image-only compatibility CSS are Python-pipeline features; the standalone browser page retains its separate behavior.
 
 1. Drop one or more `.epub` files onto the drop zone (or click to select)
 2. Adjust settings if needed
@@ -261,7 +262,7 @@ The output filename may be normalized from the EPUB's internal metadata or title
 | `--auto-crop`          | -              | Trim uniform margins before image fitting  |
 | `-W, --max-width <n>`  | profile        | Override max image width                  |
 | `-H, --max-height <n>` | profile        | Override max image height                 |
-| `--light-novel`        | -              | Rotate/split oversized landscape artwork  |
+| `--light-novel`        | -              | Detail halves then rotated overview; very wide spreads use two halves |
 | `--remove-fonts`       | -              | Opt in to embedded-font removal           |
 | `--remove-css`         | -              | Opt in to unused-CSS removal              |
 | `--generate-cover`     | -              | Opt in to generated missing cover art     |
