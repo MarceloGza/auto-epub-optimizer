@@ -92,15 +92,14 @@ def is_progressive_jpeg(image_bytes: bytes) -> bool:
 def _encode_jpeg_bytes(img: Image.Image, quality: int, grayscale: bool) -> bytes:
     """Encode an image as baseline JPEG bytes with the pipeline defaults."""
     buffer = io.BytesIO()
-    img.save(
+    encoded_image = img.convert('L' if grayscale else 'RGB')
+    encoded_image.save(
         buffer,
         format='JPEG',
         quality=quality,
         progressive=False,
         optimize=True,
-        # 4:2:0 for grayscale (all 3 channels identical, saves ~15-20%)
-        # 4:4:4 for color images
-        subsampling=2 if grayscale else 0
+        subsampling=0,
     )
     return buffer.getvalue()
 
@@ -225,7 +224,7 @@ def _auto_crop_margins(img: Image.Image, filename: str,
 def _handle_light_novel(img: Image.Image, rotate_left: bool,
                         max_width: int, max_height: int) -> list[Image.Image]:
     """
-    Rotate or split oversized landscape artwork for portrait viewing.
+    Show detail halves, then a rotated overview unless it is a very wide spread.
     Small banners and section ornaments are intentionally left alone.
     """
     width, height = img.size
@@ -235,16 +234,15 @@ def _handle_light_novel(img: Image.Image, rotate_left: bool,
 
     aspect = width / height
 
-    if aspect > 1.8:
-        # Double-page spread — split into two portrait pages
-        mid = width // 2
-        right_half = img.crop((mid, 0, width, height))
-        left_half = img.crop((0, 0, mid, height))
-        return [right_half, left_half]
-    else:
+    mid = width // 2
+    right_half = img.crop((mid, 0, width, height))
+    left_half = img.crop((0, 0, mid, height))
+    views = [right_half, left_half]
+    if aspect <= 1.8:
+        # Show detail first, then the complete illustration for context.
         angle = 90 if rotate_left else -90
-        rotated = img.rotate(angle, expand=True)
-        return [rotated]
+        views.append(img.rotate(angle, expand=True))
+    return views
 
 
 def process_image(image_bytes: bytes, filename: str, options: ImageOptions = None,
@@ -359,9 +357,6 @@ def process_image(image_bytes: bytes, filename: str, options: ImageOptions = Non
 
             if options.contrast_boost:
                 details_parts.append(f"contrast {options.contrast_factor}x")
-
-            # Convert back to RGB for JPEG compatibility
-            current_img = current_img.convert('RGB')
 
         elif options.contrast_boost:
             # Contrast without grayscale
