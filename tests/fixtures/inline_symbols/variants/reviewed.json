@@ -1,0 +1,536 @@
+[
+  {
+    "sha256": "0d82c82d425da44504cce2ae54ff9eab163a39cd2b84e5bc7eeac0408e699cb1",
+    "text": "⸺⸺⸺⸺⸺",
+    "source_name": "OEBPS/Images/Art_10mdash.jpg",
+    "review_id": 1
+  },
+  {
+    "sha256": "ec248ccdf14f78be790197aa379f77a25295f185fc9e30b9534e1b10b7c90067",
+    "text": "⸺",
+    "source_name": "OEBPS/Images/Art_2mdash.jpg",
+    "review_id": 2
+  },
+  {
+    "sha256": "86525702d991e83284d90f9d494b8dcde3743c31c47e6356a556040f6f7dbca1",
+    "text": "⸺—",
+    "source_name": "OEBPS/Images/Art_3mdash.jpg",
+    "review_id": 3
+  },
+  {
+    "sha256": "06a80ca8174f00af949033f3b1835fdede6f6f82a4afad64a58de01ac523ab56",
+    "text": "⸺⸺",
+    "source_name": "OEBPS/Images/Art_4mdash.jpg",
+    "review_id": 4
+  },
+  {
+    "sha256": "77b05089d60d1db689bb5332a34bd6bf873ca9fcf2f85684e718609a43b55515",
+    "text": "⸺⸺⸺",
+    "source_name": "OEBPS/Images/Art_6mdash.jpg",
+    "review_id": 5
+  },
+  {
+    "sha256": "6baa0e10dec8eec3aeaafc194b15739487876b4ba3249840836a2d1927b1fbd1",
+    "text": "⸺",
+    "source_name": "OEBPS/Images/Mdash2.jpg",
+    "review_id": 15
+  },
+  {
+    "sha256": "69c0dc456bfcecda3e4aa9667bee8f3c307d9a88f50d2551911e8e26bb156856",
+    "text": "⸺—",
+    "source_name": "OEBPS/Images/Mdash3.jpg",
+    "review_id": 16
+  },
+  {
+    "sha256": "fc718fdb86dda8b6b195c5cd501392948e0c9ed8522a9030fe19f5cf87b6dac7",
+    "text": "⸺⸺",
+    "source_name": "OEBPS/Images/Mdash4.jpg",
+    "review_id": 17
+  },
+  {
+    "sha256": "ab81aad3cb33a248b5d66dd7f7dd3da4b1493c6a6b39872d4e0a487da0a9a9d9",
+    "text": "⸺⸺—",
+    "source_name": "OEBPS/Images/Mdash5.jpg",
+    "review_id": 18
+  },
+  {
+    "sha256": "980c643d8590e07361b17e6674b8aaef96268207fc97586a4797c3246a118521",
+    "text": "⸺",
+    "source_name": "OEBPS/Images/Art_mdash2.jpg",
+    "review_id": 25
+  },
+  {
+    "sha256": "bc5345e070f6a73662d558a9bd5e73cb2e25b5c5ded07f57867c693c1ad6b438",
+    "text": "⸺⸺",
+    "source_name": "OEBPS/Images/Art_mdash4.jpg",
+    "review_id": 26
+  },
+  {
+    "sha256": "4a56c3acb87f7201bc7062111bff278b428bce692d0e9bf972ed9aa05a130973",
+    "text": "⸺⸺—",
+    "source_name": "OEBPS/Images/Art_mdash5.jpg",
+    "review_id": 27
+  },
+  {
+    "sha256": "60b4f3c690812efac02bcfb5b404a1ca309f4028ae5796cd3a08c18a9649f871",
+    "text": "⸺—",
+    "source_name": "OEBPS/Images/Emdash3.jpg",
+    "review_id": 33
+  },
+  {
+    "sha256": "33bf8e7db457ac981d772617b776361d3426675d16aeb44104479423e35bb1d0",
+    "text": "⸺⸺⸺",
+    "source_name": "OEBPS/Images/Emdash6.jpg",
+    "review_id": 34
+  },
+  {
+    "sha256": "3c4e468e6f4cec441b461631689ec5d70524201a621b98ddf81b17655545c6a2",
+    "text": "⸺",
+    "source_name": "OEBPS/Images/Art_emdash2.jpg",
+    "review_id": 39
+  },
+  {
+    "sha256": "d80ffe10665035ad8d1a66cf64171de149f9e3adc766e71e542dd0b3d9a33dc1",
+    "text": "⸺—",
+    "source_name": "OEBPS/Images/Art_emdash3.jpg",
+    "review_id": 40
+  },
+  {
+    "sha256": "c61688876c1337e774f32638223204132d256fd8c040741db608cd24fd7dd30a",
+    "text": "⸺⸺",
+    "source_name": "OEBPS/Images/Art_emdash4.jpg",
+    "review_id": 41
+  },
+  {
+    "sha256": "1980ea829dfe792ca8667061cb0afa8168fa77f4b1fa6c69057b253691d16373",
+    "text": "⸺⸺⸺",
+    "source_name": "OEBPS/Images/Art_emdash6.jpg",
+    "review_id": 42
+  },
+  {
+    "sha256": "569dd8ce4a78d0dac557725da89398956ff94e7cccc90571fb52075cab99fb66",
+    "text": "⸺⸺",
+    "source_name": "OEBPS/Images/mdash2a.jpg",
+    "review_id": 53
+  },
+  {
+    "sha256": "a50b2b0b90b651bc5d4f3466fe2222d63553e35c9c8eaad8bdc8a8c6fbc73e0e",
+    "text": "⸺⸺—",
+    "source_name": "OEBPS/images/mdash5.jpg",
+    "review_id": 54
+  },
+  {
+    "sha256": "9f7603e54777299be01b40d0f1292bc0c5b6f560feb11ebd9fb0df13a211320c",
+    "text": "⸺⸺",
+    "source_name": "OEBPS/images/mdash4.jpg",
+    "review_id": 55
+  },
+  {
+    "sha256": "7327ebc1b1fd14420adddaaafdc56279a867cbb9396a4ae773b5e71060595ec6",
+    "text": "⸺—",
+    "source_name": "OEBPS/images/mdash3.jpg",
+    "review_id": 56
+  },
+  {
+    "sha256": "a2b42ace0606cbc3e76286971b4cdb5f7750882ff792703f34ad99c93b1e739b",
+    "text": "⸺",
+    "source_name": "OEBPS/images/mdash2.jpg",
+    "review_id": 57
+  },
+  {
+    "sha256": "415edda8e0e25a1cd8fef7bcca0de485dd99c7cc8e872dd9ef85bf6e3ca535dd",
+    "text": "⸺⸺⸺⸺—",
+    "source_name": "OEBPS/images/mdash9.jpg",
+    "review_id": 58
+  },
+  {
+    "sha256": "c2a29d7a2c5e174566dba834dc8726474c9f0ded783bb981792e405f4a9957c6",
+    "text": "⸺⸺⸺⸺",
+    "source_name": "OEBPS/images/mdash8.jpg",
+    "review_id": 59
+  },
+  {
+    "sha256": "e96fb04de24b8cceb4c4a8a4afaa62a6e06ad47837b2a270407b6e24cc8f3ca1",
+    "text": "⸺⸺⸺",
+    "source_name": "OEBPS/images/mdash6.jpg",
+    "review_id": 60
+  },
+  {
+    "sha256": "dde32687a974cf6b805ad2a6613bc876f8a6f170bffebd12be612cada9c44180",
+    "text": "⸺⸺⸺⸺⸺⸺⸺",
+    "source_name": "OEBPS/images/mdash14.jpg",
+    "review_id": 61
+  },
+  {
+    "sha256": "2f82e8a0ba247a302ceabd419a9db021bf541481c4b674f8f6f2f0d0c14b7d86",
+    "text": "⸺⸺",
+    "source_name": "OEBPS/Images/Art_mdash4.jpg",
+    "review_id": 73
+  },
+  {
+    "sha256": "530f2f9457c8feb062513e065901e52d4e05d92d616f8c4ff46825b4af2e7d77",
+    "text": "⸺",
+    "source_name": "OEBPS/Images/Art_mdash2.jpg",
+    "review_id": 80
+  },
+  {
+    "sha256": "5b0a727f9ab29ef03ea88cd9ffd82fd42d49337a1e911188c358b034e1f05b79",
+    "text": "⸺⸺",
+    "source_name": "OEBPS/Images/Art_mdash2a.jpg",
+    "review_id": 81
+  },
+  {
+    "sha256": "2258ce0b38eedcac3706e4c94ce2dc890e93c4b567e801f30d527ef103b4204f",
+    "text": "⸺⸺",
+    "source_name": "OEBPS/Images/Art_mdash4.jpg",
+    "review_id": 82
+  },
+  {
+    "sha256": "137a89cf6ab0aca6cb2b6af417d80de171a166472c67ba219940818a2e15b124",
+    "text": "⸺⸺⸺",
+    "source_name": "OEBPS/Images/Art_mdash6.jpg",
+    "review_id": 83
+  },
+  {
+    "sha256": "3c1a8c137053f2ab26a565e65ef89916a43b18287982fbc88841ea0741d3e3c9",
+    "text": "⸺⸺⸺⸺",
+    "source_name": "OEBPS/Images/Art_mdash8.jpg",
+    "review_id": 84
+  },
+  {
+    "sha256": "ee2801ded0aacdb3c1fa897105f9a7f827ca53dd45f6d99747fe8773ded2e847",
+    "text": "⸺⸺",
+    "source_name": "OEBPS/Images/Art_mdash2a.jpg",
+    "review_id": 93
+  },
+  {
+    "sha256": "38d5908c9dffc92b740b9e229739a4d4924873637fd9e3222c1b2ee4e34c15ea",
+    "text": "⸺⸺—",
+    "source_name": "OEBPS/Images/Art_mdash5.jpg",
+    "review_id": 94
+  },
+  {
+    "sha256": "1440b03bbd70327565646e85c068fd8e19215ed81b0b5359af61693699393f12",
+    "text": "⸺⸺⸺",
+    "source_name": "OEBPS/Images/Art_mdash6.jpg",
+    "review_id": 95
+  },
+  {
+    "sha256": "89730e87067d9e2bcd8aa6861f7b1e52d7e11d163aac7a34b242cfa5ff52766b",
+    "text": "⸺⸺⸺⸺",
+    "source_name": "OEBPS/Images/Art_mdash8.jpg",
+    "review_id": 96
+  },
+  {
+    "sha256": "727f0a6b9b7eddf4321b684933a962d391be9330f8f2251d81d0fc430c97da74",
+    "text": "⸺—",
+    "source_name": "OEBPS/images/Art_mdash3.jpg",
+    "review_id": 101
+  },
+  {
+    "sha256": "6eeab75602be2bccbae221929d972e5f8492a4c69ca0910f2462ecca3416a19e",
+    "text": "⸺⸺⸺—",
+    "source_name": "OEBPS/images/Art_mdash7.jpg",
+    "review_id": 102
+  },
+  {
+    "sha256": "7d8b92fc68d788eeaf3c380fc93fb0f56f8b6fdb1edea62c7185ee217a9accff",
+    "text": "⸺",
+    "source_name": "OEBPS/Images/Art_mdash2.jpg",
+    "review_id": 106
+  },
+  {
+    "sha256": "8db6b7db36ba616d0bf4ad84f6287efe215cf9f81b2c72bfa428cc3b3666de9c",
+    "text": "⸺⸺",
+    "source_name": "OEBPS/Images/Art_mdash4.jpg",
+    "review_id": 107
+  },
+  {
+    "sha256": "499aec393c64d1d70b5efaca9e1fab07f42aa5d9474e6b4d95c7139131da2d35",
+    "text": "⸺⸺—",
+    "source_name": "OEBPS/Images/Art_mdash5.jpg",
+    "review_id": 108
+  },
+  {
+    "sha256": "4b728f481bfd6a2a3f0b550a9a336efc33b5dd550d669261659fe63177c2ae83",
+    "text": "⸺—",
+    "source_name": "OEBPS/Images/Emdash3.jpg",
+    "review_id": 116
+  },
+  {
+    "sha256": "b6cbb585c47b40bc42184b1d0a27e28a9ff8bb96256f19b3c06822d94e1908b2",
+    "text": "⸺⸺⸺",
+    "source_name": "OEBPS/Images/Emdash6.jpg",
+    "review_id": 117
+  },
+  {
+    "sha256": "500ba3f138c2424aedcec7498ff177ea20ab1cbc80565af5fc6e863d178f072a",
+    "text": "⸺",
+    "source_name": "OEBPS/Images/Art_mdash2.jpg",
+    "review_id": 123
+  },
+  {
+    "sha256": "4267ea4c5a39ae45446fd707018158d3a494239d80c15f86b0ee7dc0ece5e5e7",
+    "text": "⸺—",
+    "source_name": "OEBPS/Images/Art_mdash3.jpg",
+    "review_id": 124
+  },
+  {
+    "sha256": "84f6e36d839b7813a15bb0f261ec8a77533833555071f980330abf1c687b5513",
+    "text": "⸺⸺",
+    "source_name": "OEBPS/Images/Art_mdash4.jpg",
+    "review_id": 125
+  },
+  {
+    "sha256": "919695919a6fdedd8feca59acffffd6290718c7ecd2d8b5199cc6a993e097960",
+    "text": "⸺⸺—",
+    "source_name": "OEBPS/Images/Art_mdash5.jpg",
+    "review_id": 126
+  },
+  {
+    "sha256": "11010d9759a33e9aacc59b8c5694a8c4b6e7521cb1dae0ce8da71a1a93da75d2",
+    "text": "⸺⸺⸺",
+    "source_name": "OEBPS/Images/Art_mdash6.jpg",
+    "review_id": 127
+  },
+  {
+    "sha256": "14e9361260c1b7297e258403b0faba2a3214b034e5b90737d92885627e6beb41",
+    "text": "⸺⸺⸺—",
+    "source_name": "OEBPS/Images/Art_mdash7.jpg",
+    "review_id": 128
+  },
+  {
+    "sha256": "3d6ef8ddc14e4f7a9db60c9f4c9cfaca0c4873ae1bc0f9d742f25003e041f4b8",
+    "text": "⸺⸺⸺⸺",
+    "source_name": "OEBPS/Images/Art_mdash8.jpg",
+    "review_id": 129
+  },
+  {
+    "sha256": "e390cd114ef67c38fbfb60ed8a47809711f6a0593f8bb74cad455955b20f6f47",
+    "text": "⸺",
+    "source_name": "OEBPS/Images/Art_mdash2.jpg",
+    "review_id": 142
+  },
+  {
+    "sha256": "f8afa999459abd704e699591ab4cc76d2315e6d43e548ca657cc5df4b1cb7fdc",
+    "text": "⸺—",
+    "source_name": "OEBPS/Images/Art_mdash3.jpg",
+    "review_id": 143
+  },
+  {
+    "sha256": "a88a55ee3c1ff780950a5db4f85fc840d4899bca94150d4c5c9bf20088f1a393",
+    "text": "⸺⸺",
+    "source_name": "OEBPS/Images/Art_mdash4.jpg",
+    "review_id": 144
+  },
+  {
+    "sha256": "54d2868bbb6291cbf89fc175a7d5ab689fad3b4b3f7d97d2108950a67a142357",
+    "text": "♥",
+    "source_name": "OEBPS/Images/Art_heart.jpg",
+    "review_id": 9
+  },
+  {
+    "sha256": "8f75d89675872b4b40bb1114243e27f52a1b314ae1822624a19ca48e94d5eb5f",
+    "text": "♥",
+    "source_name": "OEBPS/Images/Art_heart.jpg",
+    "review_id": 22
+  },
+  {
+    "sha256": "bd4aca2eac17f775e36f93bd447d471d8cb2030355d4f037a5fb58ffe4f1c9e8",
+    "text": "♥",
+    "source_name": "OEBPS/Images/Art_heart1.jpg",
+    "review_id": 23
+  },
+  {
+    "sha256": "2c2ade14a0880480cb4151fcee7e2b1af4e1cdddffdda03b7c167de2b5ea24cb",
+    "text": "♥",
+    "source_name": "OEBPS/Images/Art_heart.jpg",
+    "review_id": 43
+  },
+  {
+    "sha256": "c7f45908a65b629263f0a323db8ac41200e0ca2a5ada5e351d1af277466959e3",
+    "text": "♥",
+    "source_name": "OEBPS/Images/Art_heart.jpg",
+    "review_id": 65
+  },
+  {
+    "sha256": "db8d87c7f9248c3e9a6cbf7c75e70f73f3e1bd623124dce701d6eb8571a89b1c",
+    "text": "♥",
+    "source_name": "OEBPS/Images/Art_heart.jpg",
+    "review_id": 79
+  },
+  {
+    "sha256": "2241c0c98bff09a8155c941ccd18eec22e804ce1206e1a863755892caa51db56",
+    "text": "♥",
+    "source_name": "OEBPS/Images/Art_heart.jpg",
+    "review_id": 103
+  },
+  {
+    "sha256": "a25a6bd3633e4d4500bd4345feae70cf4d4b598c72eb01ef22a876920ddc8fae",
+    "text": "♥",
+    "source_name": "OEBPS/Images/Art_heart1.jpg",
+    "review_id": 104
+  },
+  {
+    "sha256": "a6b22a201c29b753ae273b4ad4a3fa625b8f966fcc77e8fb47d3ea13e73e9b39",
+    "text": "♥",
+    "source_name": "OEBPS/Images/Art_heart.jpg",
+    "review_id": 121
+  },
+  {
+    "sha256": "01c9c073f69f7a9cf58cce7d941e2046fb45d38ae45582dd99fd3668bc066e6f",
+    "text": "♥",
+    "source_name": "OEBPS/Images/Art_heart1.jpg",
+    "review_id": 122
+  },
+  {
+    "sha256": "0471103e98ea7fc25d139146fc3169292e1dd04c0f36d9655208385452518cf6",
+    "text": "♥",
+    "source_name": "OEBPS/Images/Art_heart.jpg",
+    "review_id": 140
+  },
+  {
+    "sha256": "09b2994809ccba4e44c84079fe3227410d1d5637676b0d748c956ac5e35da715",
+    "text": "♡",
+    "source_name": "OEBPS/Images/Art_heart1.jpg",
+    "review_id": 141
+  },
+  {
+    "sha256": "6a371c39719423380da867207b69dcb577a782d459665bcf3af36c898d09ac4d",
+    "text": "♪",
+    "source_name": "OEBPS/Images/Art_music.jpg",
+    "review_id": 28
+  },
+  {
+    "sha256": "01db66b8f669645a58fd65229785d3fbd6ee56e6de6f120cce0a11c348c61866",
+    "text": "♪",
+    "source_name": "OEBPS/Images/Art_music1.jpg",
+    "review_id": 29
+  },
+  {
+    "sha256": "3b0b52f86045e219c0db5556b79968a67a65f2afb1b90eeb175697e61bd7cda3",
+    "text": "♪",
+    "source_name": "OEBPS/Images/Art_music.jpg",
+    "review_id": 44
+  },
+  {
+    "sha256": "f9feaf07bcc886cdb22c06c7be798ea6e71b260d443689d33ef049f9ac5dde71",
+    "text": "♪",
+    "source_name": "OEBPS/Images/Art_music.jpg",
+    "review_id": 74
+  },
+  {
+    "sha256": "7db143adcbee7abcc57056b139ec63da20fe27243ec200a84e15235f1f9cd9e2",
+    "text": "♪",
+    "source_name": "OEBPS/Images/Art_music.jpg",
+    "review_id": 85
+  },
+  {
+    "sha256": "19bf9445ceb4e3da4e56078b16ad49f1a3ac6e8ca5c673942de58269edb3081a",
+    "text": "♪",
+    "source_name": "OEBPS/Images/Art_musici.jpg",
+    "review_id": 97
+  },
+  {
+    "sha256": "3c715da2b5ff3219cea28c6b8cfe0415de1481d419ec860e5113d64214732f26",
+    "text": "♪",
+    "source_name": "OEBPS/images/Art_music.jpg",
+    "review_id": 100
+  },
+  {
+    "sha256": "21394b4838a08fafe1e43ad432243eaa9ebfdbd03ec668aeb12e14e181cfad21",
+    "text": "♪",
+    "source_name": "OEBPS/Images/Art_music.jpg",
+    "review_id": 109
+  },
+  {
+    "sha256": "1bc8de5642de73cf9136a319605afdbdfba1544629ab6b0799854717eed3a490",
+    "text": "♪",
+    "source_name": "OEBPS/Images/Art_music.jpg",
+    "review_id": 130
+  },
+  {
+    "sha256": "08612b57fe1442995fefc45c53ef830a01fa2f4946b44555110187ede5678854",
+    "text": "♪",
+    "source_name": "OEBPS/Images/Art_music1.jpg",
+    "review_id": 131
+  },
+  {
+    "sha256": "f0be0b48d490d8200a771cdca5b2b7c72c29fedf3e8f712c967828b5a0152157",
+    "text": "♪",
+    "source_name": "OEBPS/Images/Art_music.jpg",
+    "review_id": 145
+  },
+  {
+    "sha256": "3132cd63cf9acb0deaaba1137f5b0d0931a15724079177ebe3651e171477ef73",
+    "text": "♫",
+    "source_name": "OEBPS/Images/Art_music1.jpg",
+    "review_id": 45
+  },
+  {
+    "sha256": "d8ab75d3e93c005182117010844b65ee317c4a0951c771893750bd44e8659e26",
+    "text": "☆",
+    "source_name": "OEBPS/Images/Art_star1.jpg",
+    "review_id": 31
+  },
+  {
+    "sha256": "97d5facc8d5a3c21a33d27d975fbcf5b1fe39e1b2b388ec08549abcf04c58205",
+    "text": "☆",
+    "source_name": "OEBPS/Images/Art_star.jpg",
+    "review_id": 86
+  },
+  {
+    "sha256": "4c5f5631d936a870ee2539e47282983dad9ff78feb0eac415e77f66bb3a1ba99",
+    "text": "☆",
+    "source_name": "OEBPS/Images/Art_star.jpg",
+    "review_id": 146
+  },
+  {
+    "sha256": "05f5b431967b1ef77af21e43d001d7f14ee4d2e011d1d456e897d5077b26de8d",
+    "text": "★",
+    "source_name": "OEBPS/Images/Art_star.jpg",
+    "review_id": 52
+  },
+  {
+    "sha256": "6e1938aa4146384be9ac4b77e2876ffb9d5b1e092ab6111e07b8283c98b1f79c",
+    "text": "★",
+    "source_name": "OEBPS/Images/Art_star.jpg",
+    "review_id": 134
+  },
+  {
+    "sha256": "b37b279cd177d9558b684966bf4ad1e7b0a9448b01593064702378af9515f08b",
+    "text": "★",
+    "source_name": "OEBPS/Images/Art_star1.jpg",
+    "review_id": 147
+  },
+  {
+    "sha256": "948eaca2791e73a1e16a63c9df94bb9948bb9cb5bb040c3412ae7fc48098182a",
+    "text": null,
+    "source_name": "OEBPS/Images/Art_cnorn.jpg",
+    "review_id": 6
+  },
+  {
+    "sha256": "e5ff275582f74119fe7a9b66870f819b1f364e51dad2a2c7b1edb6e0232b5649",
+    "text": null,
+    "source_name": "OEBPS/Images/Art_symbol-2.jpg",
+    "review_id": 11
+  },
+  {
+    "sha256": "11e12d1f118f4eec9cbbdc8af8eef0ed05e5d9bd4aa337cdefac2f1bc97625e2",
+    "text": null,
+    "source_name": "OEBPS/Images/Art_mdash1.jpg",
+    "review_id": 24
+  },
+  {
+    "sha256": "3087cde63564e837080661b89650d6225e197049bd03c21b838bd1ada79a774c",
+    "text": null,
+    "source_name": "OEBPS/Images/Art_mdash1.jpg",
+    "review_id": 105
+  },
+  {
+    "sha256": "aa8b02529f89b1ff1aff2fcc7d9feb639b9a9007974c177c5b82931e657eb80a",
+    "text": null,
+    "source_name": "OEBPS/Images/Art_flower.jpg",
+    "review_id": 120
+  }
+]

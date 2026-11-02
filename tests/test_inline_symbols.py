@@ -71,7 +71,36 @@ class InlineSymbolTests(unittest.TestCase):
             snapshot = page.read_bytes()
             self.assertEqual(replace_verified_symbols(folder, [page]), [])
             self.assertEqual(page.read_bytes(), snapshot)
-            self.assertEqual(len(VERIFIED_SYMBOLS), len(expected))
+            self.assertTrue(set(expected.values()).issubset(set(VERIFIED_SYMBOLS.values())))
+
+    def test_reviewed_ngnl_variants_keep_fill_note_types_and_dash_lengths(self):
+        import hashlib
+        import json
+        from inline_symbols import replace_verified_symbols
+        variants = FIXTURE / 'variants'
+        cases = json.loads((variants / 'reviewed.json').read_text())
+        with tempfile.TemporaryDirectory() as tmp:
+            folder = Path(tmp)
+            tags, expected, remaining = [], [], []
+            for i, case in enumerate(cases):
+                data = (variants / (case['sha256'] + '.jpg')).read_bytes()
+                self.assertEqual(hashlib.sha256(data).hexdigest(), case['sha256'])
+                name = f'renamed-{i}.jpg'
+                (folder / name).write_bytes(data)
+                tags.append(f'<img src="{name}"/>')
+                if case['text'] is None:
+                    remaining.append(name)
+                else:
+                    expected.append(case['text'])
+            # Mutation of a known variant must not acquire its identity.
+            known_data = (variants / (cases[0]['sha256'] + '.jpg')).read_bytes()
+            (folder / 'mutated.jpg').write_bytes(known_data + b'not-identical')
+            page = folder / 'chapter.xhtml'
+            page.write_text('<html><body><p>Start' + ''.join(tags) + '<img src="mutated.jpg"/>End</p></body></html>')
+            report = replace_verified_symbols(folder, [page])
+            self.assertEqual([x['text'] for x in report], expected)
+            self.assertEqual(etree.parse(str(page)).xpath('//img/@src'), remaining + ['mutated.jpg'])
+            self.assertTrue({'♥', '♡', '♪', '♫', '☆', '★', '⸺—', '⸺⸺⸺⸺⸺⸺⸺'}.issubset(set(expected)))
 
     def test_default_pipeline_preserves_symbol_images(self):
         with tempfile.TemporaryDirectory() as tmp:
